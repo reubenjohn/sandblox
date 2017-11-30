@@ -35,22 +35,30 @@ class TFObject(object):
 
 
 class TFFunction(TFObject):
-	def __init__(self, scope_name: str, func, *args, **kwargs):
+	def __init__(self, scope_name: str, func, override_inputs, decorator_args: [None, dict] = None, *args, **kwargs):
+		if scope_name is None:
+			scope_name = func.__name__
 		super(TFFunction, self).__init__(scope_name)
 		self.exact_abs_scope_name = self.scope_name
 
-		# self.placeholders = kwargs['placeholders'] if 'placeholders' in kwargs else []
+		with tf.variable_scope(self.scope_name, reuse=None):
+			ret = func(*args, **kwargs)
+			if override_inputs:
+				self.inp, self.out = ret
+			else:
+				self.inp, self.out = self.args_to_inputs(func, *args, **kwargs), ret
+		super(TFFunction, self).__init__(scope_name, **kwargs)
+
+	def eval(self, feed_dict):
+		return U.get_session().run(list(self.out.__dict__.values()), feed_dict)
+
+	@staticmethod
+	def args_to_inputs(func, *args, **kwargs):
 		inp = SimpleNamespace()
 		params = list(inspect.signature(func).parameters.keys())
 		for arg_i, arg in enumerate(args):
 			inp.__dict__[params[arg_i]] = arg
-		inp.__dict__.update(kwargs)
-		self.inp = inp
-
-		with tf.variable_scope(self.scope_name + "/" + type(func).__name__, reuse=None):
-			self.out = func(*args, **kwargs)
-		self.eval = lambda feed_dict: U.get_session().run(self.out, feed_dict)
-		super(TFFunction, self).__init__(scope_name, **kwargs)
+		return inp
 
 	def get_variables(self):
 		return tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.exact_abs_scope_name)
@@ -71,10 +79,10 @@ class TFFunction(TFObject):
 		U.get_session().run(self.out, feed_dict, options, run_metadata)
 
 
-def tf_function(scope_name: str = None, tf_func_class=TFFunction):
+def tf_function(scope_name: str = None, tf_func_class=TFFunction, override_inputs=False):
 	def tf_fn(func):
 		def custom_fn(*args, **kwargs):
-			return tf_func_class(scope_name, func, *args, **kwargs)
+			return tf_func_class(scope_name, func, override_inputs, *args, **kwargs)
 
 		return custom_fn
 
@@ -88,11 +96,21 @@ def tf_function(scope_name: str = None, tf_func_class=TFFunction):
 #
 
 class TFMethod(TFFunction):
-	def __init__(self, scope_name: str, cls, method, *args, **kwargs):
-		super(TFMethod, self).__init__(scope_name, method, *args, **kwargs)
+	def __init__(self, scope_name: str, cls, method, override_inputs, decorator_args: [None, dict] = None, *args,
+				 **kwargs):
+		super(TFMethod, self).__init__(scope_name, method, override_inputs, decorator_args, *args, **kwargs)
 		self.cls = cls
 		self.method = method
 		self.method_kargs = (args, kwargs)
+
+	@staticmethod
+	def args_to_inputs(method, *args, **kwargs):
+		inp = SimpleNamespace()
+		args = args[1:]
+		params = list(inspect.signature(method).parameters.keys())[1:]
+		for arg_i, arg in enumerate(args):
+			inp.__dict__[params[arg_i]] = arg
+		return inp
 
 	def freeze(self):
 		setattr(self.cls, self.method.__name__, self)
@@ -104,10 +122,12 @@ class TFMethod(TFFunction):
 		assert self.is_frozen()
 
 
-def tf_method(scope_name: str = None, tf_method_class=TFMethod):
+def tf_method(scope_name: str = None, tf_method_class=TFMethod, override_inputs=False, *args, **kwargs):
+	decorator_args = dict(args=args, kwargs=kwargs)
+
 	def tf_m(method):
 		def custom_meth(*args, **kwargs):
-			return tf_method_class(scope_name, args[0], method, *args, **kwargs)
+			return tf_method_class(scope_name, args[0], method, override_inputs, decorator_args, *args, **kwargs)
 
 		return custom_meth
 
