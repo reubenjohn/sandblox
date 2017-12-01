@@ -1,5 +1,4 @@
 import inspect
-from types import SimpleNamespace
 
 import tensorflow as tf
 
@@ -22,6 +21,7 @@ def absolute_scope_name(relative_scope_name):
 class TFObject(object):
 	def __init__(self, scope_name: str = None, **kwargs):
 		self.scope_name = type(self).__name__ if scope_name is None else scope_name
+		# noinspection PyArgumentList
 		super(TFObject, self).__init__(**kwargs)
 
 	def absolute_scope_name(self):
@@ -34,8 +34,65 @@ class TFObject(object):
 		return "%s/" % self.absolute_scope_name()
 
 
+class InpOutBase(object):
+	def __repr__(self):
+		items = ("{}={!r}".format(k, self.__dict__[k]) for k in self.__dict__.keys())
+		return "{}({})".format(type(self).__name__, ", ".join(items))
+
+	def __eq__(self, other):
+		return self.__dict__ == other.__dict__
+
+	def __getitem__(self, item):
+		return list(self.__dict__.values())[item]
+
+	def keys(self):
+		return self.__dict__.keys()
+
+	def values(self):
+		return self.__dict__.values()
+
+
+class InpOutImplicitOrder(object):
+	def __init__(self, **kwargs):
+		self.__dict__.update(kwargs)
+		pass
+
+
+class InpOutExplicitOrder(object):
+	def __init__(self, *args):
+		self.keys = [kwarg[0] for kwarg in args]
+		for kwarg in args:
+			self.__dict__[kwarg[0]] = kwarg[1]
+		pass
+
+	def __eq__(self, other):
+		raise NotImplementedError
+
+	def __getitem__(self, item):
+		return self.__dict__[self.keys[item]]
+
+
+import platform
+
+version = platform.python_version_tuple()
+if version[0] > '3' and version[1] > '6':
+	InpOut = InpOutImplicitOrder
+	print('InpOut(InpOutImplicitOrder) has not been tested for python version 3.6+.'
+		  'Proceed at own risk, and consider contributing results')
+else:
+	InpOut = InpOutExplicitOrder
+
+
+class Inp(InpOut):
+	pass
+
+
+class Out(InpOut):
+	pass
+
+
 class TFFunction(TFObject):
-	def __init__(self, scope_name: str, func, override_inputs, decorator_args: [None, dict] = None, *args, **kwargs):
+	def __init__(self, scope_name: str, func, override_inputs, *args, **kwargs):
 		if scope_name is None:
 			scope_name = func.__name__
 		super(TFFunction, self).__init__(scope_name)
@@ -49,12 +106,9 @@ class TFFunction(TFObject):
 				self.inp, self.out = self.args_to_inputs(func, *args, **kwargs), ret
 		super(TFFunction, self).__init__(scope_name, **kwargs)
 
-	def eval(self, feed_dict):
-		return U.get_session().run(list(self.out.__dict__.values()), feed_dict)
-
 	@staticmethod
 	def args_to_inputs(func, *args, **kwargs):
-		inp = SimpleNamespace()
+		inp = Inp()
 		params = list(inspect.signature(func).parameters.keys())
 		for arg_i, arg in enumerate(args):
 			inp.__dict__[params[arg_i]] = arg
@@ -76,15 +130,21 @@ class TFFunction(TFObject):
 		return weight_update
 
 	def eval(self, feed_dict=None, options=None, run_metadata=None):
-		U.get_session().run(self.out, feed_dict, options, run_metadata)
+		return U.get_session().run(list(self.out), feed_dict, options, run_metadata)
 
 
-def tf_function(scope_name: str = None, tf_func_class=TFFunction, override_inputs=False):
-	def tf_fn(func):
+class MetaTFFunction(object):
+	def __new__(cls, func, scope_name: str = None, tf_func_class=TFFunction, override_inputs=False):
 		def custom_fn(*args, **kwargs):
 			return tf_func_class(scope_name, func, override_inputs, *args, **kwargs)
 
 		return custom_fn
+
+
+def tf_function(scope_name: str = None, tf_func_class=TFFunction, override_inputs=False,
+				meta_tf_function=MetaTFFunction):
+	def tf_fn(func):
+		return meta_tf_function(func, scope_name, tf_func_class, override_inputs)
 
 	return tf_fn
 
@@ -96,16 +156,16 @@ def tf_function(scope_name: str = None, tf_func_class=TFFunction, override_input
 #
 
 class TFMethod(TFFunction):
-	def __init__(self, scope_name: str, cls, method, override_inputs, decorator_args: [None, dict] = None, *args,
+	def __init__(self, scope_name: str, cls, method, override_inputs, *args,
 				 **kwargs):
-		super(TFMethod, self).__init__(scope_name, method, override_inputs, decorator_args, *args, **kwargs)
+		super(TFMethod, self).__init__(scope_name, method, override_inputs, *args, **kwargs)
 		self.cls = cls
 		self.method = method
 		self.method_kargs = (args, kwargs)
 
 	@staticmethod
 	def args_to_inputs(method, *args, **kwargs):
-		inp = SimpleNamespace()
+		inp = Inp()
 		args = args[1:]
 		params = list(inspect.signature(method).parameters.keys())[1:]
 		for arg_i, arg in enumerate(args):
@@ -122,13 +182,16 @@ class TFMethod(TFFunction):
 		assert self.is_frozen()
 
 
-def tf_method(scope_name: str = None, tf_method_class=TFMethod, override_inputs=False, *args, **kwargs):
-	decorator_args = dict(args=args, kwargs=kwargs)
-
-	def tf_m(method):
+class MetaTFMethod(MetaTFFunction):
+	def __new__(cls, method, scope_name: str = None, tf_method_class=TFMethod, override_inputs=False):
 		def custom_meth(*args, **kwargs):
-			return tf_method_class(scope_name, args[0], method, override_inputs, decorator_args, *args, **kwargs)
+			return tf_method_class(scope_name, args[0], method, override_inputs, *args, **kwargs)
 
 		return custom_meth
+
+
+def tf_method(scope_name: str = None, tf_method_class=TFMethod, override_inputs=False, meta_method_class=MetaTFMethod):
+	def tf_m(method):
+		return meta_method_class(method, scope_name, tf_method_class, override_inputs)
 
 	return tf_m
