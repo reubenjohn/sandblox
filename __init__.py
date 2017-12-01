@@ -91,6 +91,11 @@ class Out(InpOut):
 	pass
 
 
+class TFSubGraph(TFObject):
+	# TODO Add basic TFFunction-ality here and have it extend this
+	pass
+
+
 class TFFunction(TFObject):
 	def __init__(self, scope_name: str, func, override_inputs, *args, **kwargs):
 		if scope_name is None:
@@ -123,10 +128,10 @@ class TFFunction(TFObject):
 	# TODO Return tensorflow operation instead
 	def assign_trainable_vars(self, source_policy_graph):
 		# THIS_POLICY = POLICY
-		weight_update = tf.group(tf.assign(new, old)
-								 for (new, old) in
-								 zipsame(self.get_trainable_variables(),
-										 source_policy_graph.get_trainable_variables()))
+		weight_update = tf.group(*(tf.assign(new, old)
+								   for (new, old) in
+								   zipsame(self.get_trainable_variables(),
+										   source_policy_graph.get_trainable_variables())))
 		return weight_update
 
 	def eval(self, feed_dict=None, options=None, run_metadata=None):
