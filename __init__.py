@@ -6,14 +6,14 @@ from pythonic_tf.util import zipsame
 from . import util as U
 
 
-def scope_name():
+def get_scope_name():
 	"""Returns the name of current scope as a string, e.g. deepq/q_func"""
 	return tf.get_variable_scope().name
 
 
 def absolute_scope_name(relative_scope_name):
 	"""Appends parent scope name to `relative_scope_name`"""
-	base = scope_name()
+	base = get_scope_name()
 	base = base + "/" if len(base) > 0 else base
 	return base + relative_scope_name
 
