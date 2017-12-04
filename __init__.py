@@ -20,18 +20,16 @@ def absolute_scope_name(relative_scope_name):
 
 class TFObject(object):
 	def __init__(self, scope_name: str = None, **kwargs):
-		self.scope_name = type(self).__name__ if scope_name is None else scope_name
+		self.rel_scope_name = scope_name if scope_name is not None else type(self).__name__
+		self.abs_scope_name = absolute_scope_name(self.rel_scope_name)
 		# noinspection PyArgumentList
 		super(TFObject, self).__init__(**kwargs)
 
-	def absolute_scope_name(self):
-		return absolute_scope_name(self.scope_name)
-
 	def exact_scope_name(self):
-		return "%s/" % self.scope_name
+		return "%s/" % self.abs_scope_name
 
 	def exact_absolute_scope_name(self):
-		return "%s/" % self.absolute_scope_name()
+		return "^%s/" % self.abs_scope_name
 
 
 class InpOutBase(object):
@@ -78,7 +76,7 @@ version = platform.python_version_tuple()
 if version[0] > '3' and version[1] > '6':
 	InpOut = InpOutImplicitOrder
 	print('InpOut(InpOutImplicitOrder) has not been tested for python version 3.6+.'
-		  'Proceed at own risk, and consider contributing results')
+	      'Proceed at own risk, and consider contributing results')
 else:
 	InpOut = InpOutExplicitOrder
 
@@ -97,19 +95,18 @@ class TFSubGraph(TFObject):
 
 
 class TFFunction(TFObject):
-	def __init__(self, scope_name: str, func, override_inputs, *args, **kwargs):
-		if scope_name is None:
-			scope_name = func.__name__
-		super(TFFunction, self).__init__(scope_name)
-		self.exact_abs_scope_name = self.scope_name
+	def __init__(self, name: str, func, override_inputs, *args, **kwargs):
+		if name is None:
+			name = func.__name__
+		super(TFFunction, self).__init__(name)
 
-		with tf.variable_scope(self.scope_name, reuse=None):
+		with tf.variable_scope(self.rel_scope_name, reuse = None):
 			ret = func(*args, **kwargs)
 			if override_inputs:
 				self.inp, self.out = ret
 			else:
 				self.inp, self.out = self.args_to_inputs(func, *args, **kwargs), ret
-		super(TFFunction, self).__init__(scope_name, **kwargs)
+		super(TFFunction, self).__init__(name, **kwargs)
 
 	@staticmethod
 	def args_to_inputs(func, *args, **kwargs):
@@ -120,34 +117,30 @@ class TFFunction(TFObject):
 		return inp
 
 	def get_variables(self):
-		return tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.exact_abs_scope_name)
+		return tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.exact_absolute_scope_name())
 
 	def get_trainable_variables(self):
-		return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.exact_abs_scope_name)
+		return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.exact_absolute_scope_name())
 
-	# TODO Return tensorflow operation instead
 	def assign_trainable_vars(self, source_policy_graph):
-		# THIS_POLICY = POLICY
-		weight_update = tf.group(*(tf.assign(new, old)
-								   for (new, old) in
-								   zipsame(self.get_trainable_variables(),
-										   source_policy_graph.get_trainable_variables())))
+		weight_update = tf.group(*(tf.assign(new, old) for (new, old) in zipsame(self.get_trainable_variables(),
+		                                                                         source_policy_graph.get_trainable_variables())))
 		return weight_update
 
-	def eval(self, feed_dict=None, options=None, run_metadata=None):
+	def eval(self, feed_dict = None, options = None, run_metadata = None):
 		return U.get_session().run(list(self.out), feed_dict, options, run_metadata)
 
 
 class MetaTFFunction(object):
-	def __new__(cls, func, scope_name: str = None, tf_func_class=TFFunction, override_inputs=False):
+	def __new__(cls, func, scope_name: str = None, tf_func_class = TFFunction, override_inputs = False):
 		def custom_fn(*args, **kwargs):
 			return tf_func_class(scope_name, func, override_inputs, *args, **kwargs)
 
 		return custom_fn
 
 
-def tf_function(scope_name: str = None, tf_func_class=TFFunction, override_inputs=False,
-				meta_tf_function=MetaTFFunction):
+def tf_function(scope_name: str = None, tf_func_class = TFFunction, override_inputs = False,
+                meta_tf_function = MetaTFFunction):
 	def tf_fn(func):
 		return meta_tf_function(func, scope_name, tf_func_class, override_inputs)
 
@@ -161,9 +154,11 @@ def tf_function(scope_name: str = None, tf_func_class=TFFunction, override_input
 #
 
 class TFMethod(TFFunction):
-	def __init__(self, scope_name: str, cls, method, override_inputs, *args,
-				 **kwargs):
-		super(TFMethod, self).__init__(scope_name, method, override_inputs, *args, **kwargs)
+	def __init__(self, name: str, cls, method, override_inputs, *args,
+	             **kwargs):
+		method_name = name if name is not None else method.__name__
+		object_name = cls.rel_scope_name if isinstance(cls, TFObject) else type(cls).__name__
+		super(TFMethod, self).__init__(object_name + "/" + method_name, method, override_inputs, *args, **kwargs)
 		self.cls = cls
 		self.method = method
 		self.method_kargs = (args, kwargs)
@@ -188,15 +183,16 @@ class TFMethod(TFFunction):
 
 
 class MetaTFMethod(MetaTFFunction):
-	def __new__(cls, method, scope_name: str = None, tf_method_class=TFMethod, override_inputs=False):
+	def __new__(cls, method, scope_name: str = None, tf_method_class = TFMethod, override_inputs = False):
 		def custom_meth(*args, **kwargs):
 			return tf_method_class(scope_name, args[0], method, override_inputs, *args, **kwargs)
 
 		return custom_meth
 
 
-def tf_method(scope_name: str = None, tf_method_class=TFMethod, override_inputs=False, meta_method_class=MetaTFMethod):
+def tf_method(name: str = None, tf_method_class = TFMethod, override_inputs = False,
+              meta_method_class = MetaTFMethod):
 	def tf_m(method):
-		return meta_method_class(method, scope_name, tf_method_class, override_inputs)
+		return meta_method_class(method, name, tf_method_class, override_inputs)
 
 	return tf_m
