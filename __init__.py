@@ -123,8 +123,8 @@ class TFFunction(TFObject):
 		return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.exact_absolute_scope_name())
 
 	def assign_trainable_vars(self, source_policy_graph):
-		weight_update = tf.group(*(tf.assign(new, old) for (new, old) in zipsame(self.get_trainable_variables(),
-		                                                                         source_policy_graph.get_trainable_variables())))
+		weight_update = [tf.assign(new, old) for (new, old) in zipsame(self.get_trainable_variables(),
+		                                                                         source_policy_graph.get_trainable_variables())]
 		return weight_update
 
 	def eval(self, feed_dict = None, options = None, run_metadata = None):
