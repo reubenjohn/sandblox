@@ -1,9 +1,167 @@
 import inspect
+import sys
+from collections import OrderedDict
 
 import tensorflow as tf
 
 from pythonic_tf.util import zipsame
 from . import util as U
+
+
+class FlatBoundArguments(object):
+	def __init__(self, fn):
+		self.signature = inspect.signature(fn)
+
+	@staticmethod
+	def _flatten_kwargs(bound_args: OrderedDict):
+		if 'kwargs' in bound_args:
+			bound_args.update(bound_args['kwargs'])
+			bound_args.pop('kwargs')
+
+	def __call__(self, *args, **kwargs) -> OrderedDict:
+		bound_args = self.signature.bind(*args, **kwargs)
+		bound_args.apply_defaults()
+		arguments = bound_args.arguments
+		self._flatten_kwargs(arguments)
+		return arguments
+
+
+class DictAttrs(object):
+	def __init__(self, dic: dict = None):
+		if dic is not None:
+			self.__dict__.update(dic)
+
+	def __iter__(self):
+		return self.__dict__.__iter__()
+
+	def __setitem__(self, key, value):
+		self.__dict__.__setitem__(key, value)
+
+	def __str__(self):
+		return self.__dict__.__str__()
+
+
+class AttrBuilder:
+	def _on_new_attr_val(self, key, val):
+		raise NotImplementedError
+
+	def _new_attr_val(self, key, val):
+		self._on_new_attr_val(key, val)
+		return self
+
+	def __getattr__(self, item):
+		return lambda val: self._new_attr_val(item, val)
+
+
+class BlockOutsBase(AttrBuilder):
+	def add_output(self, key, val):
+		if key in self.out:
+			print('Warning an output named %s already exists with value: %s' % (key, self.out[key]))
+		self.out[key] = val
+		self.outs += (val,)
+
+	def _on_new_attr_val(self, key, val):
+		self.add_output(key, val)
+
+
+class BlockOutsKwargs(BlockOutsBase):
+	def __init__(self, **kwargs):
+		self.out = kwargs
+		if sys.version_info[0] < 3 or (sys.version_info[0] == 3 and sys.version_info[1] < 6):
+			print('WARNING: keyword arguments constructor will not preserve output order before Python 3.6!\n' +
+				  'Please use the empty constructor approach provided for backward compatibility:\n' +
+				  'Eg: ' + type(self).__name__ + '().a(a_val).b(b_val)')
+		self.outs = tuple(val for val in kwargs.values())
+
+
+class BlockOutsAttrs(BlockOutsBase):
+	def __init__(self):
+		self.out = DictAttrs()
+		self.outs = ()
+
+
+Outs = BlockOutsAttrs if sys.version_info[0] < 3 or (
+	sys.version_info[0] == 3 and sys.version_info[1] < 6) else BlockOutsKwargs
+
+
+def dynamic(arg):
+	arg.__is_d_inp = True
+	return arg
+
+
+def is_dynamic_arg(arg):
+	return hasattr(arg, '__is_d_inp')
+
+
+def soft_initialize(self, *args):
+	"""
+	Useful to avoid false positive warnings from IDEs during __init__
+	:param self: the object on which to perform the soft initialization
+	:param a: the attribute key for which to probe based on which the assignment may or may not be performed
+	:return:
+	"""
+	for arg in args:
+		yield arg if hasattr(self, arg) and getattr(self, arg) is not None else None
+
+
+def flattened_dynamic_arguments(inp: dict) -> list:
+	result = []
+	for key in inp:
+		if is_dynamic_arg(inp[key]):
+			result.append(inp[key])
+		elif isinstance(inp[key], Mold):
+			result.extend(inp[key].d_inps)
+	return result
+
+
+class Mold(object):
+	def __init__(self, *args, **kwargs):
+		self.out, self.outs = soft_initialize(self, 'out', 'outs')
+		self.inp, self.inps = soft_initialize(self, 'inp', 'inps')
+		self.d_inps, = soft_initialize(self, 'd_inps')
+		super(Mold, self).__init__()
+		self.build(*args, **kwargs)
+		self.eval = util.function(self.d_inps, self.outs)
+
+	def on_build(self, *args, **kwargs):
+		raise NotImplementedError
+
+	def build(self, *args, **kwargs):
+		inp = FlatBoundArguments(self.on_build)(*args, **kwargs)
+		self.inp = DictAttrs(inp)
+		self.inps = list(inp.values())
+		self.d_inps = flattened_dynamic_arguments(inp)
+
+		ret = self.on_build(*args, **kwargs)
+
+		self.out = ret.out
+		self.outs = ret.outs
+		self.set_out(ret)
+		return ret
+
+	def set_out(self, outs: Outs = None):
+		if isinstance(outs, Outs):
+			block_outputs = outs
+		elif isinstance(outs[0], Outs):
+			block_outputs = outs[0]
+		else:
+			raise AssertionError(
+				'A SandBlock must either return only a ' + type(Outs).__name__
+				+ ' or it must be the first element of what is returned'
+			)
+		self.out = block_outputs.out
+		self.outs = block_outputs.outs
+
+
+def mold(fn):
+	class MoldFn(Mold):
+		on_build = fn
+
+		def __init__(self, *args, **kwargs):
+			self.on_build = fn
+			super(MoldFn, self).__init__(*args, **kwargs)
+
+	return MoldFn
 
 
 def get_scope_name():
