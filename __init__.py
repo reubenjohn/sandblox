@@ -41,6 +41,16 @@ class DictAttrs(object):
 		return self.__dict__.__str__()
 
 
+class AttrFactory(object):
+	def __init__(self, attr_builder_class):
+		self.cls = attr_builder_class
+
+	def __getattr__(self, item):
+		if item == 'cls':
+			return self.cls
+		return self.cls().__getattr__(item)
+
+
 class AttrBuilder:
 	def _on_new_attr_val(self, key, val):
 		raise NotImplementedError
@@ -80,7 +90,7 @@ class BlockOutsAttrs(BlockOutsBase):
 		self.outs = ()
 
 
-Outs = BlockOutsAttrs if sys.version_info[0] < 3 or (
+Out = AttrFactory(BlockOutsAttrs) if sys.version_info[0] < 3 or (
 	sys.version_info[0] == 3 and sys.version_info[1] < 6) else BlockOutsKwargs
 
 
@@ -139,14 +149,14 @@ class Mold(object):
 		self.set_out(ret)
 		return ret
 
-	def set_out(self, outs: Outs = None):
-		if isinstance(outs, Outs):
+	def set_out(self, outs: Out = None):
+		if isinstance(outs, Out.cls):
 			block_outputs = outs
-		elif isinstance(outs[0], Outs):
+		elif isinstance(outs[0], Out):
 			block_outputs = outs[0]
 		else:
 			raise AssertionError(
-				'A SandBlock must either return only a ' + type(Outs).__name__
+				'A SandBlock must either return only a ' + type(Out).__name__
 				+ ' or it must be the first element of what is returned'
 			)
 		self.out = block_outputs.out
@@ -280,7 +290,7 @@ class Inp(InpOut):
 	pass
 
 
-class Out(InpOut):
+class Outs(InpOut):
 	pass
 
 

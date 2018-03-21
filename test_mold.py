@@ -4,6 +4,7 @@ import numpy
 import tensorflow as tf
 
 import pythonic_tf as sb
+from pythonic_tf import Out, dynamic
 from reils.hypothesis import action_selector
 from reils.hypothesis.action_selector import ActionSelector
 from reils.utils.distributions import make_pdtype
@@ -12,7 +13,7 @@ from reils_gym import GymEnvironment
 
 class FooLogic(object):
 	call_cache = dict()
-	args = [tf.ones((), tf.float32), sb.dynamic(tf.placeholder(tf.float32, (), 'y'))]
+	args = [tf.ones((), tf.float32), dynamic(tf.placeholder(tf.float32, (), 'y'))]
 	kwargs = dict(extra=10)
 	args_call = lambda fn: fn(*FooLogic.args, **FooLogic.kwargs)
 	cached_args_call = lambda fn: FooLogic.cached_call(fn, *FooLogic.args, **FooLogic.kwargs)
@@ -36,10 +37,10 @@ class FooLogic(object):
 def foo(x, y, param_with_default=-5, **kwargs):
 	b, a = FooLogic.cached_call(FooLogic.call, x, y, param_with_default, **kwargs)
 
-	if sb.Outs == sb.BlockOutsKwargs:
-		return sb.Outs(b=b, a=a)
+	if Out == sb.BlockOutsKwargs:
+		return Out(b=b, a=a)
 	else:
-		return sb.Outs().b(b).a(a)
+		return Out.b(b).a(a)
 
 
 # noinspection PyTypeChecker
@@ -48,10 +49,10 @@ class Foo(sb.Mold):
 		b, a = FooLogic.cached_call(FooLogic.call, x, y, param_with_default, **kwargs)
 
 		# TODO Test both cases for python 3.6+
-		if sb.Outs == sb.BlockOutsKwargs:
-			out = sb.Outs(b=b, a=a)
+		if Out == sb.BlockOutsKwargs:
+			out = Out(b=b, a=a)
 		else:
-			out = sb.Outs().b(b).a(a)
+			out = Out.b(b).a(a)
 
 		return out
 
@@ -118,7 +119,7 @@ class TestMoldUsage(TestCase):
 		def on_build(self, ob, prev_state):
 			logits = tf.layers.dense(ob, 2)
 			next_state = tf.layers.dense(prev_state, 4)
-			return sb.Outs().logits(logits).state(next_state)
+			return Out.logits(logits).state(next_state)
 
 		@staticmethod
 		def new_state_placeholder(batch_shape: [None, int, list] = None):
@@ -144,21 +145,17 @@ class TestMoldUsage(TestCase):
 			selected_action_op = tf.gather(selector_ops,
 										   tf.cast(selected_index, tf.int32, "action_selected_index"),
 										   name="action")
-			return sb.Outs().act(selected_action_op)
-
-		# super(Agent, self).__init__(
-		# 	selected_index, selectors, hypothesis
-		# )
+			return Out.act(selected_action_op)
 
 	def test_lifecycle(self):
 		# TODO Handle default and implicit state management
 		# TODO Lifecycle that fuses dynamic & static graph based computing
 		ob_space, ac_space = GymEnvironment.get_spaces('CartPole-v0')
-		hypo = TestMoldUsage.Hypothesis(sb.dynamic(tf.placeholder(tf.float32, [None, 2])),
+		hypo = TestMoldUsage.Hypothesis(dynamic(tf.placeholder(tf.float32, [None, 2])),
 										TestMoldUsage.Hypothesis.new_state_variable())
 		self.assertTrue(hypo.inp.ob is not None)
 		pdtype = make_pdtype(ac_space)
-		agent = TestMoldUsage.Agent(sb.dynamic(tf.placeholder(tf.float32, (), 'selected_index')),
+		agent = TestMoldUsage.Agent(dynamic(tf.placeholder(tf.float32, (), 'selected_index')),
 									[action_selector.Greedy(pdtype),
 									 action_selector.LinDecayEpsilonGreedy(pdtype, .95, 10000)], hypo)
 		self.assertTrue(agent.out.act is not None)
