@@ -4,7 +4,7 @@ from collections import OrderedDict
 
 import tensorflow as tf
 
-from pythonic_tf.util import zipsame
+from sandblox.util import zipsame
 from . import util as U
 
 
@@ -94,9 +94,13 @@ Out = AttrFactory(BlockOutsAttrs) if sys.version_info[0] < 3 or (
 	sys.version_info[0] == 3 and sys.version_info[1] < 6) else BlockOutsKwargs
 
 
-def dynamic(arg):
-	arg.__is_d_inp = True
-	return arg
+def dynamic(*args):
+	if len(args) == 1:
+		args[0].__is_d_inp = True
+		return args[0]
+	for arg in args:
+		arg.__is_d_inp = True
+	return args
 
 
 def is_dynamic_arg(arg):
@@ -163,7 +167,7 @@ class Mold(object):
 		self.outs = block_outputs.outs
 
 
-def mold(fn):
+def mold(fn) -> Mold:
 	class MoldFn(Mold):
 		on_build = fn
 
