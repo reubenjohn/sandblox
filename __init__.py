@@ -65,10 +65,10 @@ class AttrBuilder:
 
 class BlockOutsBase(AttrBuilder):
 	def add_output(self, key, val):
-		if key in self.out:
-			print('Warning an output named %s already exists with value: %s' % (key, self.out[key]))
-		self.out[key] = val
-		self.outs += (val,)
+		if key in self.o:
+			print('Warning an output named %s already exists with value: %s' % (key, self.o[key]))
+		self.o[key] = val
+		self.oz.append(val)
 
 	def _on_new_attr_val(self, key, val):
 		self.add_output(key, val)
@@ -76,18 +76,18 @@ class BlockOutsBase(AttrBuilder):
 
 class BlockOutsKwargs(BlockOutsBase):
 	def __init__(self, **kwargs):
-		self.out = kwargs
+		self.o = kwargs
 		if sys.version_info[0] < 3 or (sys.version_info[0] == 3 and sys.version_info[1] < 6):
 			print('WARNING: keyword arguments constructor will not preserve output order before Python 3.6!\n' +
 				  'Please use the empty constructor approach provided for backward compatibility:\n' +
 				  'Eg: ' + type(self).__name__ + '().a(a_val).b(b_val)')
-		self.outs = tuple(val for val in kwargs.values())
+		self.oz = tuple(val for val in kwargs.values())
 
 
 class BlockOutsAttrs(BlockOutsBase):
 	def __init__(self):
-		self.out = DictAttrs()
-		self.outs = ()
+		self.o = DictAttrs()
+		self.oz = []
 
 
 Out = AttrFactory(BlockOutsAttrs) if sys.version_info[0] < 3 or (
@@ -107,7 +107,7 @@ def is_dynamic_arg(arg):
 	return hasattr(arg, '__is_d_inp')
 
 
-def soft_initialize(self, *args):
+def soft_assign(self, *args):
 	"""
 	Useful to avoid false positive warnings from IDEs during __init__
 	:param self: the object on which to perform the soft initialization
@@ -115,41 +115,62 @@ def soft_initialize(self, *args):
 	:return:
 	"""
 	for arg in args:
-		yield arg if hasattr(self, arg) and getattr(self, arg) is not None else None
+		if isinstance(arg, tuple):
+			val = arg[1]
+			arg = arg[0]
+		else:
+			val = None
+		if hasattr(self, arg) and getattr(self, arg) is not None:
+			yield getattr(self, arg)
+		else:
+			yield val
 
 
-def flattened_dynamic_arguments(inp: dict) -> list:
+def flattened_dynamic_arguments(inps: dict) -> list:
 	result = []
-	for key in inp:
-		if is_dynamic_arg(inp[key]):
-			result.append(inp[key])
-		elif isinstance(inp[key], Mold):
-			result.extend(inp[key].d_inps)
+	for key in inps:
+		inp = inps[key]
+		if is_dynamic_arg(inp) or (isinstance(inp, tf.Tensor) and inp.op.type == 'Placeholder'):
+			result.append(inp)
+		elif isinstance(inp, Block):
+			result.extend(inp.d_inps)
 	return result
 
 
-class Mold(object):
+class Block(object):
 	def __init__(self, *args, **kwargs):
-		self.out, self.outs = soft_initialize(self, 'out', 'outs')
-		self.inp, self.inps = soft_initialize(self, 'inp', 'inps')
-		self.d_inps, = soft_initialize(self, 'd_inps')
-		super(Mold, self).__init__()
-		self.build(*args, **kwargs)
-		self.eval = util.function(self.d_inps, self.outs)
+		self.o, self.oz = soft_assign(self, 'out', 'outs')
+		self.i, self.iz = soft_assign(self, 'inp', 'inps')
+		self.d_inps, self.d_state_index = soft_assign(self, ('d_inps', []), 'd_state_index')
+		self.options = None
+		self.run_metadata = None
+		super(Block, self).__init__()
+		self._build(*args, **kwargs)
+		self.built_fn, = soft_assign(self, ('built_fn', util.function(self.d_inps, self.oz)))
 
-	def on_build(self, *args, **kwargs):
-		raise NotImplementedError
+	# TODO Push this method into a subclass specifically for TensorFlow
+	def eval(self, *args, **kwargs):
+		self.built_fn.using(self.options, self.run_metadata)
+		return self.built_fn(*args, **kwargs)
+
+	def using(self, options=None, run_metadata=None):
+		self.options = options
+		self.run_metadata = run_metadata
+		return self
 
 	def build(self, *args, **kwargs):
-		inp = FlatBoundArguments(self.on_build)(*args, **kwargs)
-		self.inp = DictAttrs(inp)
-		self.inps = list(inp.values())
-		self.d_inps = flattened_dynamic_arguments(inp)
+		raise NotImplementedError
 
-		ret = self.on_build(*args, **kwargs)
+	def _build(self, *args, **kwargs):
+		i = FlatBoundArguments(self.build)(*args, **kwargs)
+		self.i = DictAttrs(i)
+		self.iz = list(i.values())
+		self.d_inps.extend(flattened_dynamic_arguments(i))
 
-		self.out = ret.out
-		self.outs = ret.outs
+		ret = self.build(*args, **kwargs)
+
+		self.o = ret.o
+		self.oz = ret.oz
 		self.set_out(ret)
 		return ret
 
@@ -163,19 +184,19 @@ class Mold(object):
 				'A SandBlock must either return only a ' + type(Out).__name__
 				+ ' or it must be the first element of what is returned'
 			)
-		self.out = block_outputs.out
-		self.outs = block_outputs.outs
+		self.o = block_outputs.o
+		self.oz = block_outputs.oz
 
 
-def mold(fn) -> Mold:
-	class MoldFn(Mold):
-		on_build = fn
+def block(fn) -> Block:
+	class BlockFn(Block):
+		build = fn
 
 		def __init__(self, *args, **kwargs):
-			self.on_build = fn
-			super(MoldFn, self).__init__(*args, **kwargs)
+			self.build = fn
+			super(BlockFn, self).__init__(*args, **kwargs)
 
-	return MoldFn
+	return BlockFn
 
 
 def get_scope_name():
@@ -312,9 +333,9 @@ class TFFunction(TFObject):
 		with tf.variable_scope(self.rel_scope_name, reuse=None):
 			ret = func(*args, **kwargs)
 			if override_inputs:
-				self.inp, self.out = ret
+				self.i, self.o = ret
 			else:
-				self.inp, self.out = self.args_to_inputs(func, *args, **kwargs), ret
+				self.i, self.o = self.args_to_inputs(func, *args, **kwargs), ret
 		super(TFFunction, self).__init__(name, **kwargs)
 
 	@staticmethod
@@ -337,7 +358,7 @@ class TFFunction(TFObject):
 		return weight_update
 
 	def eval(self, feed_dict=None, options=None, run_metadata=None):
-		return U.get_session().run(list(self.out), feed_dict, options, run_metadata)
+		return U.get_session().run(list(self.o), feed_dict, options, run_metadata)
 
 
 class MetaTFFunction(object):

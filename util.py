@@ -452,10 +452,13 @@ def function(inputs, outputs, updates=None, givens=None):
 		return _Function(inputs, outputs, updates, givens=givens)
 	elif isinstance(outputs, (dict, collections.OrderedDict)):
 		f = _Function(inputs, outputs.values(), updates, givens=givens)
-		return lambda *args, **kwargs: type(outputs)(zip(outputs.keys(), f(*args, **kwargs)))
+		base = f.__call__
+		f.__call__ = lambda *args, **kwargs: type(outputs)(zip(outputs.keys(), base(*args, **kwargs)))
+		return f
 	else:
 		f = _Function(inputs, [outputs], updates, givens=givens)
-		return lambda *args, **kwargs: f(*args, **kwargs)[0]
+		base = f.__call__
+		f.__call__ = lambda *args, **kwargs: base(*args, **kwargs)[0]
 
 
 class _Function(object):
@@ -469,6 +472,8 @@ class _Function(object):
 		self.outputs_update = list(outputs) + [self.update_group]
 		self.givens = {} if givens is None else givens
 		self.check_nan = check_nan
+		self.options = None
+		self.run_metadata = None
 
 	def _feed_input(self, feed_dict, inpt, value):
 		if issubclass(type(inpt), TfInput):
@@ -498,11 +503,19 @@ class _Function(object):
 		# Update feed dict with givens.
 		for inpt in self.givens:
 			feed_dict[inpt] = feed_dict.get(inpt, self.givens[inpt])
-		results = get_session().run(self.outputs_update, feed_dict=feed_dict)[:-1]
+		results = get_session().run(self.outputs_update, feed_dict=feed_dict, options=self.options,
+									run_metadata=self.run_metadata)[:-1]
+		self.options = None
+		self.run_metadata = None
 		if self.check_nan:
 			if any(np.isnan(r).any() for r in results):
 				raise RuntimeError("Nan detected")
 		return results
+
+	def using(self, options=None, run_metadata=None):
+		self.options = options
+		self.run_metadata = run_metadata
+		return self
 
 
 def mem_friendly_function(nondata_inputs, data_inputs, outputs, batch_size):
