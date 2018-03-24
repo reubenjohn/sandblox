@@ -32,9 +32,9 @@ class FooLogic(object):
 		return FooLogic.call_cache[key]
 
 
-# noinspection PyTypeChecker
 @sx.block
 def foo(x, y, param_with_default=-5, **kwargs):
+	# noinspection PyTypeChecker
 	b, a = FooLogic.cached_call(FooLogic.call, x, y, param_with_default, **kwargs)
 
 	if Out == sx.BlockOutsKwargs:
@@ -43,23 +43,42 @@ def foo(x, y, param_with_default=-5, **kwargs):
 		return Out.b(b).a(a)
 
 
-# noinspection PyTypeChecker
+@sx.block
+def bad_foo(x, y, param_with_default=-5, **kwargs):
+	# noinspection PyTypeChecker
+	b, a = FooLogic.cached_call(FooLogic.call, x, y, param_with_default, **kwargs)
+	return b, a
+
+
 class Foo(sx.Block):
 	def build(self, x, y, param_with_default=-5, **kwargs):
+		# noinspection PyTypeChecker
 		b, a = FooLogic.cached_call(FooLogic.call, x, y, param_with_default, **kwargs)
 
 		# TODO Test both cases for python 3.6+
 		if Out == sx.BlockOutsKwargs:
-			out = Out(b=b, a=a)
+			return Out(b=b, a=a)
 		else:
-			out = Out.b(b).a(a)
+			return Out.b(b).a(a)
 
-		return out
+
+class BadFoo(sx.Block):
+	def build(self, x, y, param_with_default=-5, **kwargs):
+		# noinspection PyTypeChecker
+		b, a = FooLogic.cached_call(FooLogic.call, x, y, param_with_default, **kwargs)
+
+		return b, a
 
 
 class FooWithInternalArgs(Foo):
 	def __init__(self, exclusive_constructor_arg, x, y, param_with_default=-5, **kwargs):
 		super(Foo, self).__init__(x, y, param_with_default, **kwargs)
+		self.internal_arg = exclusive_constructor_arg
+
+
+class BadFooWithInternalArgs(BadFoo):
+	def __init__(self, exclusive_constructor_arg, x, y, param_with_default=-5, **kwargs):
+		super(BadFoo, self).__init__(x, y, param_with_default, **kwargs)
 		self.internal_arg = exclusive_constructor_arg
 
 
@@ -73,6 +92,7 @@ class BaseTestCases(object):
 			self.bound_flattened_logic_arguments = FooLogic.args_call(sx.FlatBoundArguments(FooLogic.call))
 			self.logic_outputs = list(FooLogic.cached_args_call(FooLogic.call))
 			self.block_foo_ob = None
+			self.bad_foo_context = None
 
 			self.options = tf.RunOptions()
 			self.options.output_partition_graphs = True
@@ -102,17 +122,24 @@ class BaseTestCases(object):
 				self.assertEqual(eval_100[0], eval_0[0] + 100)
 				self.assertNotEqual(eval_100[1], eval_0[1])  # Boy aren't you unlucky if you fail this test XD
 
+		def test_bad_foo_assertion(self):
+			self.assertTrue('must either return' in str(self.bad_foo_context.exception))
+
 
 class TestBlockFunction(BaseTestCases.TestBlockBase):
 	def __init__(self, method_name: str = 'runTest'):
 		super(TestBlockFunction, self).__init__(method_name)
 		self.block_foo_ob = FooLogic.args_call(foo)
+		with self.assertRaises(AssertionError) as self.bad_foo_context:
+			FooLogic.args_call(bad_foo)
 
 
 class TestBlockClass(BaseTestCases.TestBlockBase):
 	def setUp(self):
 		super(TestBlockClass, self).setUp()
 		self.block_foo_ob = FooLogic.args_call(Foo)
+		with self.assertRaises(AssertionError) as self.bad_foo_context:
+			FooLogic.args_call(BadFoo)
 
 
 # noinspection PyCallByClass
@@ -120,6 +147,8 @@ class TestBlockClassWithInternals(BaseTestCases.TestBlockBase):
 	def setUp(self):
 		super(TestBlockClassWithInternals, self).setUp()
 		self.block_foo_ob = FooLogic.internal_args_call(FooWithInternalArgs)
+		with self.assertRaises(AssertionError) as self.bad_foo_context:
+			FooLogic.internal_args_call(BadFooWithInternalArgs)
 
 
 # TODO Handle default and implicit state management

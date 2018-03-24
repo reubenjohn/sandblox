@@ -139,9 +139,9 @@ def flattened_dynamic_arguments(inps: dict) -> list:
 
 class Block(object):
 	def __init__(self, *args, **kwargs):
-		self.o, self.oz = soft_assign(self, 'out', 'outs')
-		self.i, self.iz = soft_assign(self, 'inp', 'inps')
+		self.o, self.oz, self.i, self.iz = soft_assign(self, 'out', 'outs', 'inp', 'inps')
 		self.d_inps, self.d_state_index = soft_assign(self, ('d_inps', []), 'd_state_index')
+		self.state, = soft_assign(self, 'state')
 		self.options = None
 		self.run_metadata = None
 		super(Block, self).__init__()
@@ -169,16 +169,10 @@ class Block(object):
 
 		ret = self.build(*args, **kwargs)
 
-		self.o = ret.o
-		self.oz = ret.oz
-		self.set_out(ret)
-		return ret
-
-	def set_out(self, outs: Out = None):
-		if isinstance(outs, Out.cls):
-			block_outputs = outs
-		elif isinstance(outs[0], Out):
-			block_outputs = outs[0]
+		if isinstance(ret, Out.cls):
+			block_outputs = ret
+		elif hasattr(ret, '__len__') and len(ret) > 1 and isinstance(ret[0], Out.cls):
+			block_outputs = ret[0]
 		else:
 			raise AssertionError(
 				'A SandBlock must either return only a ' + type(Out).__name__
@@ -186,6 +180,11 @@ class Block(object):
 			)
 		self.o = block_outputs.o
 		self.oz = block_outputs.oz
+
+		return ret
+
+	def get_state(self):
+		return self.state
 
 
 def block(fn) -> Block:
