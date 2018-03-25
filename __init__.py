@@ -35,6 +35,9 @@ class DictAttrs(object):
 	def __iter__(self):
 		return self.__dict__.__iter__()
 
+	def __getitem__(self, item):
+		return self.__dict__.__getitem__(item)
+
 	def __setitem__(self, key, value):
 		self.__dict__.__setitem__(key, value)
 
@@ -239,6 +242,10 @@ class TFBlock(Block):
 		pass
 
 
+def cast_to_tf_block(ob) -> TFBlock:
+	return ob
+
+
 class StateShape(object):
 	def __init__(self, shape):
 		self._shape = shape
@@ -270,8 +277,44 @@ def cast_to_state_shape(ob) -> StateShape:
 class StatefullTFBlock(TFBlock):
 	STATE = cast_to_state_shape(None)
 
+	def __init__(self, *args, **kwargs):
+		self.prev_state = self.next_state = self.state_index = self.state = None
+		super(StatefullTFBlock, self).__init__(*args, **kwargs)
+
+	def _build(self, *args, **kwargs):
+		super(StatefullTFBlock, self)._build(*args, **kwargs)
+		tuple_state = self.o.state
+		if isinstance(tuple_state, tuple):
+			self.prev_state, self.next_state = self.o.state
+			if not is_dynamic_arg(self.prev_state):
+				dependencies = [self.o[key] for key in self.o if key != 'state']
+				with tf.control_dependencies(dependencies):
+					updated_state = self.STATE.assign(self.prev_state, self.next_state)
+			else:
+				updated_state = self.next_state
+			self.o.state = updated_state
+			oz_index = self.oz.index(tuple_state)
+			self.oz[oz_index] = self.o.state
+			if is_dynamic_arg(self.prev_state):
+				self.state_index = oz_index
+
 	def build(self, *args, **kwargs):
 		raise NotImplementedError
+
+	def get_my_givens(self):
+		givens = super(StatefullTFBlock, self).get_my_givens()
+		if is_dynamic_arg(self.prev_state):
+			givens.update({self.prev_state: self.state})
+		return givens
+
+	def process_my_outputs(self, outputs):
+		super(StatefullTFBlock, self).process_my_outputs(outputs)
+		if self.state_index is not None:
+			self.state = outputs[self.state_index]
+
+
+def cast_to_stateful_tf_block(ob) -> StatefullTFBlock:
+	return ob
 
 
 # TODO Turn into a meta decorator where the base class Block can be specified as an argument
@@ -295,6 +338,17 @@ def tf_block(fn) -> TFBlock:
 			super(TFBlockFn, self).__init__(*args, **kwargs)
 
 	return TFBlockFn
+
+
+def stateful_tf_block(fn) -> StatefullTFBlock:
+	class StatefullTFBlockFn(StatefullTFBlock):
+		build = fn
+
+		def __init__(self, *args, **kwargs):
+			self.build = fn
+			super(StatefullTFBlockFn, self).__init__(*args, **kwargs)
+
+	return StatefullTFBlockFn
 
 
 def get_scope_name():
