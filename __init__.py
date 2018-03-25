@@ -142,39 +142,14 @@ class Block(object):
 		super(Block, self).__init__()
 		self.o, self.oz, self.i, self.iz = None, None, None, None
 		self.di = []
-		self.givens = {}
-		self.options = None
-		self.run_metadata = None
 		self._build(*args, **kwargs)
-		# TODO Push this implementation into a subclass specifically for TensorFlow
-		self.built_fn, = soft_assign(self, ('built_fn', util.function(self.di, self.oz)))
+		self.built_fn = None
 
 	def eval(self, *args, **kwargs):
 		raise NotImplementedError
 
-	# TODO Push this method into a subclass specifically for TensorFlow
-	def using(self, options=None, run_metadata=None):
-		self.options = options
-		self.run_metadata = run_metadata
-		return self
-
 	def process_inputs(self, *args, **kwargs):
-		if not self.is_dynamic():
-			self.built_fn.givens = self.get_all_givens()
-			self.built_fn.using(self.options, self.run_metadata)
-
-	def get_all_givens(self) -> dict:
-		givens = {}
-		for inp in self.iz:
-			if isinstance(inp, Block):
-				child_givens = inp.get_all_givens()
-				givens.update(child_givens)
-		my_givens = self.get_my_givens()
-		givens.update(my_givens)
-		return givens
-
-	def get_my_givens(self):
-		return self.givens
+		pass
 
 	def run(self, *args, **kwargs):
 		self.process_inputs(*args, **kwargs)
@@ -220,6 +195,42 @@ class Block(object):
 		return ret
 
 
+class TFBlock(Block):
+	def __init__(self, *args, **kwargs):
+		super(TFBlock, self).__init__(*args, **kwargs)
+		self.givens = {}
+		self.options = None
+		self.run_metadata = None
+		self.built_fn = util.function(self.di, self.oz)
+
+	def process_inputs(self, *args, **kwargs):
+		super(TFBlock, self).process_inputs(*args, **kwargs)
+		if not self.is_dynamic():
+			self.built_fn.givens = self.get_all_givens()
+			self.built_fn.using(self.options, self.run_metadata)
+
+	def get_all_givens(self) -> dict:
+		givens = {}
+		for inp in self.iz:
+			if isinstance(inp, TFBlock):
+				child_givens = inp.get_all_givens()
+				givens.update(child_givens)
+		my_givens = self.get_my_givens()
+		givens.update(my_givens)
+		return givens
+
+	def get_my_givens(self):
+		return self.givens
+
+	def using(self, options=None, run_metadata=None):
+		self.options = options
+		self.run_metadata = run_metadata
+		return self
+
+	def eval(self, *args, **kwargs):
+		pass
+
+
 def block(fn) -> Block:
 	class BlockFn(Block):
 		build = fn
@@ -229,6 +240,17 @@ def block(fn) -> Block:
 			super(BlockFn, self).__init__(*args, **kwargs)
 
 	return BlockFn
+
+
+def tf_block(fn) -> TFBlock:
+	class TFBlockFn(TFBlock):
+		build = fn
+
+		def __init__(self, *args, **kwargs):
+			self.build = fn
+			super(TFBlockFn, self).__init__(*args, **kwargs)
+
+	return TFBlockFn
 
 
 def cast_to_block(ob) -> Block:

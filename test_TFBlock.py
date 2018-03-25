@@ -34,7 +34,7 @@ class FooLogic(object):
 		return FooLogic.call_cache[key]
 
 
-@sx.block
+@sx.tf_block
 def foo(x, y, param_with_default=-5, **kwargs):
 	# noinspection PyTypeChecker
 	b, a = FooLogic.cached_call(FooLogic.call, x, y, param_with_default, **kwargs)
@@ -45,14 +45,14 @@ def foo(x, y, param_with_default=-5, **kwargs):
 		return Out.b(b).a(a)
 
 
-@sx.block
+@sx.tf_block
 def bad_foo(x, y, param_with_default=-5, **kwargs):
 	# noinspection PyTypeChecker
 	b, a = FooLogic.cached_call(FooLogic.call, x, y, param_with_default, **kwargs)
 	return b, a
 
 
-class Foo(sx.Block):
+class Foo(sx.TFBlock):
 	def build(self, x, y, param_with_default=-5, **kwargs):
 		# noinspection PyTypeChecker
 		b, a = FooLogic.cached_call(FooLogic.call, x, y, param_with_default, **kwargs)
@@ -64,7 +64,7 @@ class Foo(sx.Block):
 			return Out.b(b).a(a)
 
 
-class BadFoo(sx.Block):
+class BadFoo(sx.TFBlock):
 	def build(self, x, y, param_with_default=-5, **kwargs):
 		# noinspection PyTypeChecker
 		b, a = FooLogic.cached_call(FooLogic.call, x, y, param_with_default, **kwargs)
@@ -173,7 +173,7 @@ class TestBlockClassWithInternals(Suppress1.TestBlockBase):
 # TODO Lifecycle that fuses dynamic & static graph based computing
 
 
-class Hypothesis(sx.Block):
+class Hypothesis(sx.TFBlock):
 	__slots__ = 'state',
 
 	def build(self, ob, state):
@@ -207,11 +207,11 @@ class Hypothesis(sx.Block):
 		return tf.assign(dest_state, src_state)
 
 
-class Agent(sx.Block):
+class Agent(sx.TFBlock):
 	def __init__(self, *args, **kwargs):
 		super(Agent, self).__init__(*args, **kwargs)
 
-	def build(self, selected_index, selectors: [ActionSelector], hypothesis) -> sx.Block:
+	def build(self, selected_index, selectors: [ActionSelector], hypothesis) -> sx.TFBlock:
 		selected_action_op = tf.gather(
 			[selector(hypothesis.o.logits) for selector in selectors],
 			tf.cast(selected_index, tf.int32, "action_selected_index"),
