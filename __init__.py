@@ -2,6 +2,7 @@ import inspect
 import sys
 from collections import OrderedDict
 
+import numpy
 import tensorflow as tf
 
 from sandblox.util import zipsame
@@ -195,7 +196,14 @@ class Block(object):
 		return ret
 
 
+def cast_to_block(ob) -> Block:
+	return ob
+
+
 class TFBlock(Block):
+	def build(self, *args, **kwargs):
+		raise NotImplementedError
+
 	def __init__(self, *args, **kwargs):
 		super(TFBlock, self).__init__(*args, **kwargs)
 		self.givens = {}
@@ -231,6 +239,42 @@ class TFBlock(Block):
 		pass
 
 
+class StateShape(object):
+	def __init__(self, shape):
+		self._shape = shape
+
+	def shape(self):
+		return self._shape
+
+	def batch_shape(self, batch_size: [int, list] = 1):
+		batch_size = batch_size if isinstance(batch_size, list) else [batch_size]
+		return batch_size + self.shape()
+
+	def new(self, batch_size: [int, list] = 1):
+		return numpy.random.uniform(-1, 1, self.batch_shape(batch_size))
+
+	def new_placeholder(self, batch_size: [None, int, list] = None):
+		return tf.placeholder(tf.float32, self.batch_shape(batch_size), 'state')
+
+	def new_variable(self, batch_size: [int, list] = 1):
+		return tf.Variable(self.new(batch_size), name='state')
+
+	def assign(self, dest_state, src_state):
+		return tf.assign(dest_state, src_state)
+
+
+def cast_to_state_shape(ob) -> StateShape:
+	return ob
+
+
+class StatefullTFBlock(TFBlock):
+	STATE = cast_to_state_shape(None)
+
+	def build(self, *args, **kwargs):
+		raise NotImplementedError
+
+
+# TODO Turn into a meta decorator where the base class Block can be specified as an argument
 def block(fn) -> Block:
 	class BlockFn(Block):
 		build = fn
@@ -251,10 +295,6 @@ def tf_block(fn) -> TFBlock:
 			super(TFBlockFn, self).__init__(*args, **kwargs)
 
 	return TFBlockFn
-
-
-def cast_to_block(ob) -> Block:
-	return ob
 
 
 def get_scope_name():

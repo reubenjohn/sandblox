@@ -173,38 +173,15 @@ class TestBlockClassWithInternals(Suppress1.TestBlockBase):
 # TODO Lifecycle that fuses dynamic & static graph based computing
 
 
-class Hypothesis(sx.TFBlock):
+class Hypothesis(sx.StatefullTFBlock):
 	__slots__ = 'state',
+
+	STATE = sx.StateShape([4])
 
 	def build(self, ob, state):
 		logits = tf.layers.dense(ob, 2)
 		next_state = tf.layers.dense(state, 4)
 		return Out.logits(logits).state(next_state)
-
-	@staticmethod
-	def state_shape():
-		return [4]
-
-	@staticmethod
-	def state_batch_shape(batch_size):
-		batch_size = batch_size if isinstance(batch_size, list) else [batch_size]
-		return batch_size + Hypothesis.state_shape()
-
-	@staticmethod
-	def new_state_placeholder(batch_size: [None, int, list] = None):
-		return tf.placeholder(tf.float32, Hypothesis.state_batch_shape(batch_size), 'state')
-
-	@staticmethod
-	def new_state_variable(batch_size: [int, list] = 1):
-		return tf.Variable(Hypothesis.new_state(batch_size), name='state')
-
-	@staticmethod
-	def new_state(batch_size: [int, list] = 1):
-		return numpy.random.uniform(-1, 1, Hypothesis.state_batch_shape(batch_size))
-
-	@staticmethod
-	def assign_state(dest_state, src_state):
-		return tf.assign(dest_state, src_state)
 
 
 class Agent(sx.TFBlock):
@@ -219,7 +196,7 @@ class Agent(sx.TFBlock):
 		)
 		if not sx.is_dynamic_arg(hypothesis.i.state):
 			with tf.control_dependencies([selected_action_op]):
-				updated_state = Hypothesis.assign_state(hypothesis.i.state, hypothesis.o.state)
+				updated_state = Hypothesis.STATE.assign(hypothesis.i.state, hypothesis.o.state)
 		else:
 			updated_state = hypothesis.o.state
 		return Out.action(selected_action_op).state(updated_state)
@@ -255,7 +232,7 @@ class Suppress2(object):
 			)
 
 		def setUp(self):
-			self.agnt.state = Hypothesis.new_state()
+			self.agnt.state = Hypothesis.STATE.new()
 
 		def test_inputs(self):
 			ai = self.agnt.i
@@ -276,7 +253,7 @@ class Suppress2(object):
 
 class TestPlaceholderStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
 	def __init__(self, method_name: str = 'runTest'):
-		self.state_tensor = Hypothesis.new_state_placeholder()
+		self.state_tensor = Hypothesis.STATE.new_placeholder()
 		super(TestPlaceholderStateHierarchicalBlock, self).__init__(method_name)
 
 	def test_state_update(self):
@@ -292,5 +269,5 @@ class TestPlaceholderStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
 
 class TestVarialbleStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
 	def __init__(self, method_name: str = 'runTest'):
-		self.state_tensor = Hypothesis.new_state_variable()
+		self.state_tensor = Hypothesis.STATE.new_variable()
 		super(TestVarialbleStateHierarchicalBlock, self).__init__(method_name)
