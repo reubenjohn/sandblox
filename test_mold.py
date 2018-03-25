@@ -176,7 +176,7 @@ class TestBlockClassWithInternals(Suppress1.TestBlockBase):
 class Hypothesis(sx.Block):
 	__slots__ = 'state',
 
-	def build(self, ob, state, state_batch_size=1):
+	def build(self, ob, state):
 		logits = tf.layers.dense(ob, 2)
 		next_state = tf.layers.dense(state, 4)
 		return Out.logits(logits).state(next_state)
@@ -204,21 +204,30 @@ class Hypothesis(sx.Block):
 
 	@staticmethod
 	def assign_state(dest_state, src_state):
-		pass
+		return tf.assign(dest_state, src_state)
 
 
 class Agent(sx.Block):
+	def __init__(self, *args, **kwargs):
+		super(Agent, self).__init__(*args, **kwargs)
+
 	def build(self, selected_index, selectors: [ActionSelector], hypothesis) -> sx.Block:
 		selected_action_op = tf.gather(
 			[selector(hypothesis.o.logits) for selector in selectors],
 			tf.cast(selected_index, tf.int32, "action_selected_index"),
 			name="action"
 		)
-		return Out.action(selected_action_op).state(hypothesis.o.state)
+		if not sx.is_dynamic_arg(hypothesis.i.state):
+			with tf.control_dependencies([selected_action_op]):
+				updated_state = Hypothesis.assign_state(hypothesis.i.state, hypothesis.o.state)
+		else:
+			updated_state = hypothesis.o.state
+		return Out.action(selected_action_op).state(updated_state)
 
 	def get_my_givens(self):
 		givens = super(Agent, self).get_my_givens()
-		givens.update({self.i.hypothesis.i.state: self.state})
+		if sx.is_dynamic_arg(self.i.hypothesis.i.state):
+			givens.update({self.i.hypothesis.i.state: self.state})
 		return givens
 
 	def process_my_outputs(self, outputs):
@@ -232,17 +241,20 @@ ob_space, ac_space = GymEnvironment.get_spaces('CartPole-v0')
 pdtype = make_pdtype(ac_space)
 
 
-class Suppress2(TestCase):
+class Suppress2(object):
 	class TestHierarchicalBase(TestCase):
 		__slots__ = 'state_tensor',
 
-		def setUp(self):
+		def __init__(self, method_name: str = 'runTest'):
+			super(Suppress2.TestHierarchicalBase, self).__init__(method_name)
 			self.hypo = Hypothesis(tf.placeholder(tf.float32, [None, 2], 'ob'), self.state_tensor)
 			self.agnt = Agent(
 				tf.placeholder(tf.float32, (), 'selected_index'),
 				[action_selector.Greedy(pdtype), action_selector.Stochastic(pdtype)],
 				self.hypo
 			)
+
+		def setUp(self):
 			self.agnt.state = Hypothesis.new_state()
 
 		def test_inputs(self):
@@ -260,15 +272,25 @@ class Suppress2(TestCase):
 				agent_result = self.agnt.run(0, [[.1, .2]])
 				self.assertTrue(agent_result[0] in [[0], [1]])
 				self.assertEqual(agent_result[1].shape, (1, 4))
-				old_state = self.agnt.state
-				agent_result = self.agnt.run(0, [[.1, .2]])
-				self.assertEqual(agent_result[1].shape, (1, 4))
-				self.assertTrue(
-					not numpy.alltrue(
-						numpy.equal(self.agnt.state, old_state)))  # Small possibility of a false positive here
 
 
-class TestDynamicStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
-	def setUp(self):
+class TestPlaceholderStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
+	def __init__(self, method_name: str = 'runTest'):
 		self.state_tensor = Hypothesis.new_state_placeholder()
-		super(TestDynamicStateHierarchicalBlock, self).setUp()
+		super(TestPlaceholderStateHierarchicalBlock, self).__init__(method_name)
+
+	def test_state_update(self):
+		with tf.Session() as sess:
+			sess.run(tf.global_variables_initializer())
+			old_state = self.agnt.state
+			agent_result = self.agnt.run(0, [[.1, .2]])
+			self.assertEqual(agent_result[1].shape, (1, 4))
+			self.assertTrue(
+				not numpy.alltrue(
+					numpy.equal(self.agnt.state, old_state)))  # Small possibility of a false positive here
+
+
+class TestVarialbleStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
+	def __init__(self, method_name: str = 'runTest'):
+		self.state_tensor = Hypothesis.new_state_variable()
+		super(TestVarialbleStateHierarchicalBlock, self).__init__(method_name)

@@ -140,9 +140,9 @@ def flattened_dynamic_arguments(inps: dict) -> list:
 class Block(object):
 	def __init__(self, *args, **kwargs):
 		super(Block, self).__init__()
-		self.o, self.oz, self.i, self.iz = soft_assign(self, 'out', 'outs', 'inp', 'inps')
-		self.di, = soft_assign(self, ('di', []))
-		self.givens, = soft_assign(self, ('givens', {}))
+		self.o, self.oz, self.i, self.iz = None, None, None, None
+		self.di = []
+		self.givens = {}
 		self.options = None
 		self.run_metadata = None
 		self._build(*args, **kwargs)
