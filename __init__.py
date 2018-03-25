@@ -317,16 +317,23 @@ def cast_to_stateful_tf_block(ob) -> StatefullTFBlock:
 	return ob
 
 
-# TODO Turn into a meta decorator where the base class Block can be specified as an argument
-def block(fn) -> Block:
-	class BlockFn(Block):
-		build = fn
+def block(fn_or_class):
+	cls = fn_or_class if inspect.isclass(fn_or_class) else Block
 
-		def __init__(self, *args, **kwargs):
-			self.build = fn
-			super(BlockFn, self).__init__(*args, **kwargs)
+	def wrapper(fn) -> Block:
+		class BlockFn(cls):
+			build = fn
 
-	return BlockFn
+			def __init__(self, *args, **kwargs):
+				self.build = fn
+				super(BlockFn, self).__init__(*args, **kwargs)
+
+		return BlockFn
+
+	if inspect.isclass(fn_or_class):
+		return wrapper
+	else:
+		return wrapper(fn_or_class)
 
 
 def tf_block(fn) -> TFBlock:
@@ -340,15 +347,21 @@ def tf_block(fn) -> TFBlock:
 	return TFBlockFn
 
 
-def stateful_tf_block(fn) -> StatefullTFBlock:
-	class StatefullTFBlockFn(StatefullTFBlock):
-		build = fn
+def stateful_tf_block(state_shape, cls=StatefullTFBlock):
+	assert isinstance(state_shape, StateShape)
 
-		def __init__(self, *args, **kwargs):
-			self.build = fn
-			super(StatefullTFBlockFn, self).__init__(*args, **kwargs)
+	def wrapper(fn) -> cls:
+		class BlockFn(cls):
+			STATE = state_shape
+			build = fn
 
-	return StatefullTFBlockFn
+			def __init__(self, *args, **kwargs):
+				self.build = fn
+				super(BlockFn, self).__init__(*args, **kwargs)
+
+		return BlockFn
+
+	return wrapper
 
 
 def get_scope_name():

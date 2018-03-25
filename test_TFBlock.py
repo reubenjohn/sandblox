@@ -52,6 +52,7 @@ def bad_foo(x, y, param_with_default=-5, **kwargs):
 	return b, a
 
 
+# noinspection PyClassHasNoInit
 class Foo(sx.TFBlock):
 	def build(self, x, y, param_with_default=-5, **kwargs):
 		# noinspection PyTypeChecker
@@ -64,6 +65,7 @@ class Foo(sx.TFBlock):
 			return Out.b(b).a(a)
 
 
+# noinspection PyClassHasNoInit
 class BadFoo(sx.TFBlock):
 	def build(self, x, y, param_with_default=-5, **kwargs):
 		# noinspection PyTypeChecker
@@ -155,8 +157,10 @@ class TestBlockFunction(Suppress1.TestBlockBase):
 class TestBlockClass(Suppress1.TestBlockBase):
 	def setUp(self):
 		super(TestBlockClass, self).setUp()
+		# noinspection PyCallByClass
 		self.block_foo_ob = FooLogic.args_call(Foo)
 		with self.assertRaises(AssertionError) as self.bad_foo_context:
+			# noinspection PyCallByClass
 			FooLogic.args_call(BadFoo)
 
 
@@ -173,18 +177,14 @@ class TestBlockClassWithInternals(Suppress1.TestBlockBase):
 # TODO Lifecycle that fuses dynamic & static graph based computing
 
 
-class Hypothesis(sx.StatefullTFBlock):
-	__slots__ = 'state',
-
-	STATE = sx.StateShape([4])
-
-	def build(self, ob, state):
-		logits = tf.layers.dense(ob, 2)
-		next_state = tf.layers.dense(state, 4)
-		return Out.logits(logits).state(next_state)
+@sx.tf_block
+def hypothesis(ob, state):
+	logits = tf.layers.dense(ob, 2)
+	next_state = tf.layers.dense(state, 4)
+	return Out.logits(logits).state(next_state)
 
 
-@sx.stateful_tf_block
+@sx.stateful_tf_block(sx.StateShape([4]))
 def agent(selected_index, selectors: [ActionSelector], hypothesis) -> sx.StatefullTFBlock:
 	selected_action_op = tf.gather(
 		[selector(hypothesis.o.logits) for selector in selectors],
@@ -193,8 +193,6 @@ def agent(selected_index, selectors: [ActionSelector], hypothesis) -> sx.Statefu
 	)
 	return Out.action(selected_action_op).state((hypothesis.i.state, hypothesis.o.state))
 
-
-agent.STATE = Hypothesis.STATE
 
 ob_space, ac_space = GymEnvironment.get_spaces('CartPole-v0')
 pdtype = make_pdtype(ac_space)
@@ -206,7 +204,7 @@ class Suppress2(object):
 
 		def __init__(self, method_name: str = 'runTest'):
 			super(Suppress2.TestHierarchicalBase, self).__init__(method_name)
-			self.hypo = Hypothesis(tf.placeholder(tf.float32, [None, 2], 'ob'), self.state_tensor)
+			self.hypo = hypothesis(tf.placeholder(tf.float32, [None, 2], 'ob'), self.state_tensor)
 			self.agnt = agent(
 				tf.placeholder(tf.float32, (), 'selected_index'),
 				[action_selector.Greedy(pdtype), action_selector.Stochastic(pdtype)],
@@ -214,7 +212,7 @@ class Suppress2(object):
 			)
 
 		def setUp(self):
-			self.agnt.state = Hypothesis.STATE.new()
+			self.agnt.state = agent.STATE.new()
 
 		def test_inputs(self):
 			ai = self.agnt.i
@@ -235,7 +233,7 @@ class Suppress2(object):
 
 class TestPlaceholderStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
 	def __init__(self, method_name: str = 'runTest'):
-		self.state_tensor = Hypothesis.STATE.new_placeholder()
+		self.state_tensor = agent.STATE.new_placeholder()
 		super(TestPlaceholderStateHierarchicalBlock, self).__init__(method_name)
 
 	def test_state_update(self):
@@ -251,5 +249,5 @@ class TestPlaceholderStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
 
 class TestVarialbleStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
 	def __init__(self, method_name: str = 'runTest'):
-		self.state_tensor = Hypothesis.STATE.new_variable()
+		self.state_tensor = agent.STATE.new_variable()
 		super(TestVarialbleStateHierarchicalBlock, self).__init__(method_name)
