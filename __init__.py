@@ -104,7 +104,7 @@ def dynamic(*args):
 
 
 def is_dynamic_arg(arg):
-	return hasattr(arg, '__is_d_inp')
+	return hasattr(arg, '__is_d_inp') or (isinstance(arg, tf.Tensor) and arg.op.type == 'Placeholder')
 
 
 def soft_assign(self, *args):
@@ -130,33 +130,69 @@ def flattened_dynamic_arguments(inps: dict) -> list:
 	result = []
 	for key in inps:
 		inp = inps[key]
-		if is_dynamic_arg(inp) or (isinstance(inp, tf.Tensor) and inp.op.type == 'Placeholder'):
+		if is_dynamic_arg(inp):
 			result.append(inp)
 		elif isinstance(inp, Block):
-			result.extend(inp.d_inps)
+			result.extend(inp.di)
 	return result
 
 
 class Block(object):
 	def __init__(self, *args, **kwargs):
+		super(Block, self).__init__()
 		self.o, self.oz, self.i, self.iz = soft_assign(self, 'out', 'outs', 'inp', 'inps')
-		self.d_inps, self.d_state_index = soft_assign(self, ('d_inps', []), 'd_state_index')
-		self.state, = soft_assign(self, 'state')
+		self.di, = soft_assign(self, ('di', []))
+		self.givens, = soft_assign(self, ('givens', {}))
 		self.options = None
 		self.run_metadata = None
-		super(Block, self).__init__()
 		self._build(*args, **kwargs)
-		self.built_fn, = soft_assign(self, ('built_fn', util.function(self.d_inps, self.oz)))
+		# TODO Push this implementation into a subclass specifically for TensorFlow
+		self.built_fn, = soft_assign(self, ('built_fn', util.function(self.di, self.oz)))
+
+	def eval(self, *args, **kwargs):
+		raise NotImplementedError
 
 	# TODO Push this method into a subclass specifically for TensorFlow
-	def eval(self, *args, **kwargs):
-		self.built_fn.using(self.options, self.run_metadata)
-		return self.built_fn(*args, **kwargs)
-
 	def using(self, options=None, run_metadata=None):
 		self.options = options
 		self.run_metadata = run_metadata
 		return self
+
+	def process_inputs(self, *args, **kwargs):
+		if not self.is_dynamic():
+			self.built_fn.givens = self.get_all_givens()
+			self.built_fn.using(self.options, self.run_metadata)
+
+	def get_all_givens(self) -> dict:
+		givens = {}
+		for inp in self.iz:
+			if isinstance(inp, Block):
+				child_givens = inp.get_all_givens()
+				givens.update(child_givens)
+		my_givens = self.get_my_givens()
+		givens.update(my_givens)
+		return givens
+
+	def get_my_givens(self):
+		return self.givens
+
+	def run(self, *args, **kwargs):
+		self.process_inputs(*args, **kwargs)
+		dynamic_oz = self.eval(*args, **kwargs) if self.is_dynamic() else self.built_fn(*args, **kwargs)
+		self.process_outputs(dynamic_oz)
+		return dynamic_oz
+
+	def process_outputs(self, outputs):
+		for inp in self.iz:
+			if isinstance(inp, Block):
+				inp.process_outputs(outputs)
+		self.process_my_outputs(outputs)
+
+	def process_my_outputs(self, outputs):
+		pass
+
+	def is_dynamic(self):
+		return self.built_fn is None or any(b.is_dynamic() for b in self.iz if isinstance(b, Block))
 
 	def build(self, *args, **kwargs):
 		raise NotImplementedError
@@ -165,7 +201,7 @@ class Block(object):
 		i = FlatBoundArguments(self.build)(*args, **kwargs)
 		self.i = DictAttrs(i)
 		self.iz = list(i.values())
-		self.d_inps.extend(flattened_dynamic_arguments(i))
+		self.di.extend(flattened_dynamic_arguments(i))
 
 		ret = self.build(*args, **kwargs)
 
@@ -183,9 +219,6 @@ class Block(object):
 
 		return ret
 
-	def get_state(self):
-		return self.state
-
 
 def block(fn) -> Block:
 	class BlockFn(Block):
@@ -196,6 +229,10 @@ def block(fn) -> Block:
 			super(BlockFn, self).__init__(*args, **kwargs)
 
 	return BlockFn
+
+
+def cast_to_block(ob) -> Block:
+	return ob
 
 
 def get_scope_name():

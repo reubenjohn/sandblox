@@ -1,3 +1,4 @@
+import time
 from unittest import TestCase
 
 import numpy
@@ -13,7 +14,8 @@ from sandblox import Out
 
 class FooLogic(object):
 	call_cache = dict()
-	args = [tf.ones((), tf.float32), tf.placeholder(tf.float32, (), 'y')]
+	di = [tf.placeholder(tf.float32, (), 'y')]
+	args = [tf.ones((), tf.float32), di[0]]
 	kwargs = dict(extra=10)
 	args_call = lambda fn: fn(*FooLogic.args, **FooLogic.kwargs)
 	cached_args_call = lambda fn: FooLogic.cached_call(fn, *FooLogic.args, **FooLogic.kwargs)
@@ -82,16 +84,16 @@ class BadFooWithInternalArgs(BadFoo):
 		self.internal_arg = exclusive_constructor_arg
 
 
-class BaseTestCases(object):
+class Suppress1(object):
 	# Wrapped classes don't get tested themselves
 	# noinspection PyCallByClass
 	class TestBlockBase(TestCase):
 		def __init__(self, method_name: str = 'runTest'):
-			super(BaseTestCases.TestBlockBase, self).__init__(method_name)
+			super(Suppress1.TestBlockBase, self).__init__(method_name)
 			# TODO Use variable instead
 			self.bound_flattened_logic_arguments = FooLogic.args_call(sx.FlatBoundArguments(FooLogic.call))
 			self.logic_outputs = list(FooLogic.cached_args_call(FooLogic.call))
-			self.block_foo_ob = None
+			self.block_foo_ob = sx.cast_to_block(None)  # To help IDEs help us ;)
 			self.bad_foo_context = None
 
 			self.options = tf.RunOptions()
@@ -99,10 +101,13 @@ class BaseTestCases(object):
 			self.options.trace_level = tf.RunOptions.FULL_TRACE
 
 		def setUp(self):
-			super(BaseTestCases.TestBlockBase, self).setUp()
+			super(Suppress1.TestBlockBase, self).setUp()
 
 		def test_block_inputs(self):
 			self.assertEqual(self.block_foo_ob.i.__dict__, self.bound_flattened_logic_arguments)
+
+		def test_block_dynamic_inputs(self):
+			self.assertEqual(self.block_foo_ob.di, FooLogic.di)
 
 		def test_block_out(self):
 			self.assertEqual(self.block_foo_ob.o.a, self.logic_outputs[1])
@@ -113,10 +118,10 @@ class BaseTestCases(object):
 
 		def test_eval(self):
 			with tf.Session():
-				eval_100 = self.block_foo_ob.eval(100)
+				eval_100 = self.block_foo_ob.run(100)
 
 				metadata = tf.RunMetadata()
-				eval_0 = self.block_foo_ob.using(self.options, metadata).eval(0)
+				eval_0 = self.block_foo_ob.using(self.options, metadata).run(0)
 				self.assertTrue(hasattr(metadata, 'partition_graphs') and len(metadata.partition_graphs) > 0)
 
 				self.assertEqual(eval_100[0], eval_0[0] + 100)
@@ -125,8 +130,21 @@ class BaseTestCases(object):
 		def test_bad_foo_assertion(self):
 			self.assertTrue('must either return' in str(self.bad_foo_context.exception))
 
+		def test_overhead(self):
+			self.block_foo_ob.eval = lambda *args: ()
+			built_fn = self.block_foo_ob.built_fn
+			self.block_foo_ob.built_fn = None
+			with tf.Session():
+				then = time.time()
+				for _ in range(100):
+					self.block_foo_ob.run(100)
+				elapse = int((time.time() - then) * 1e6 / 10)
+				print(elapse)
+				self.assertTrue(elapse < 100)
+			self.block_foo_ob.built_fn = built_fn
 
-class TestBlockFunction(BaseTestCases.TestBlockBase):
+
+class TestBlockFunction(Suppress1.TestBlockBase):
 	def __init__(self, method_name: str = 'runTest'):
 		super(TestBlockFunction, self).__init__(method_name)
 		self.block_foo_ob = FooLogic.args_call(foo)
@@ -134,7 +152,7 @@ class TestBlockFunction(BaseTestCases.TestBlockBase):
 			FooLogic.args_call(bad_foo)
 
 
-class TestBlockClass(BaseTestCases.TestBlockBase):
+class TestBlockClass(Suppress1.TestBlockBase):
 	def setUp(self):
 		super(TestBlockClass, self).setUp()
 		self.block_foo_ob = FooLogic.args_call(Foo)
@@ -143,7 +161,7 @@ class TestBlockClass(BaseTestCases.TestBlockBase):
 
 
 # noinspection PyCallByClass
-class TestBlockClassWithInternals(BaseTestCases.TestBlockBase):
+class TestBlockClassWithInternals(Suppress1.TestBlockBase):
 	def setUp(self):
 		super(TestBlockClassWithInternals, self).setUp()
 		self.block_foo_ob = FooLogic.internal_args_call(FooWithInternalArgs)
@@ -155,74 +173,102 @@ class TestBlockClassWithInternals(BaseTestCases.TestBlockBase):
 # TODO Lifecycle that fuses dynamic & static graph based computing
 
 
-class TestBlockUsage(TestCase):
-	ob_space, ac_space = GymEnvironment.get_spaces('CartPole-v0')
+class Hypothesis(sx.Block):
+	__slots__ = 'state',
 
-	def test_lifecycle(self):
-		class Hypothesis(sx.Block):
-			def build(self, ob, state):
-				logits = tf.layers.dense(ob, 2)
-				next_state = tf.layers.dense(state, 4)
-				return Out.logits(logits).state(next_state)
+	def build(self, ob, state, state_batch_size=1):
+		logits = tf.layers.dense(ob, 2)
+		next_state = tf.layers.dense(state, 4)
+		return Out.logits(logits).state(next_state)
 
-			@staticmethod
-			def state_shape():
-				return [4]
+	@staticmethod
+	def state_shape():
+		return [4]
 
-			@staticmethod
-			def state_batch_shape(batch_size):
-				batch_size = batch_size if isinstance(batch_size, list) else [batch_size]
-				return batch_size + Hypothesis.state_shape()
+	@staticmethod
+	def state_batch_shape(batch_size):
+		batch_size = batch_size if isinstance(batch_size, list) else [batch_size]
+		return batch_size + Hypothesis.state_shape()
 
-			@staticmethod
-			def new_state_placeholder(batch_size: [None, int, list] = None):
-				return tf.placeholder(tf.float32, Hypothesis.state_batch_shape(batch_size), 'state')
+	@staticmethod
+	def new_state_placeholder(batch_size: [None, int, list] = None):
+		return tf.placeholder(tf.float32, Hypothesis.state_batch_shape(batch_size), 'state')
 
-			@staticmethod
-			def new_state_variable(batch_size: [int, list] = 1):
-				return tf.Variable(Hypothesis.new_state(batch_size), name='state')
+	@staticmethod
+	def new_state_variable(batch_size: [int, list] = 1):
+		return tf.Variable(Hypothesis.new_state(batch_size), name='state')
 
-			@staticmethod
-			def new_state(batch_size: [int, list] = 1):
-				return numpy.zeros(Hypothesis.state_batch_shape(batch_size), numpy.float32)
+	@staticmethod
+	def new_state(batch_size: [int, list] = 1):
+		return numpy.random.uniform(-1, 1, Hypothesis.state_batch_shape(batch_size))
 
-			@staticmethod
-			def assign_state(dest_state, src_state):
-				pass
+	@staticmethod
+	def assign_state(dest_state, src_state):
+		pass
 
-		@sx.block
-		def agent(selected_index, selectors: [ActionSelector], hypothesis) -> sx.Block:
-			selected_action_op = tf.gather(
-				[selector(hypothesis.o.logits) for selector in selectors],
-				tf.cast(selected_index, tf.int32, "action_selected_index"),
-				name="action"
-			)
-			return Out.action(selected_action_op).state(hypothesis.o.state)
 
-		hypo = Hypothesis(tf.placeholder(tf.float32, [None, 2], 'ob'), Hypothesis.new_state_placeholder())
-		pdtype = make_pdtype(TestBlockUsage.ac_space)
-		agnt = agent(
-			tf.placeholder(tf.float32, (), 'selected_index'),
-			[action_selector.Greedy(pdtype), action_selector.Stochastic(pdtype)],
-			hypo
+class Agent(sx.Block):
+	def build(self, selected_index, selectors: [ActionSelector], hypothesis) -> sx.Block:
+		selected_action_op = tf.gather(
+			[selector(hypothesis.o.logits) for selector in selectors],
+			tf.cast(selected_index, tf.int32, "action_selected_index"),
+			name="action"
 		)
-		ai = agnt.i
-		self.assertEqual(agnt.iz,
-						 [
-							 ai.selected_index,
-							 ai.selectors,
-							 ai.hypothesis
-						 ])
-		hi = ai.hypothesis.i
-		self.assertEqual(agnt.d_inps,
-						 [
-							 ai.selected_index,
-							 hi.ob,
-							 hi.state
-						 ])
-		# TODO test options and run_metadata
-		with tf.Session() as sess:
-			sess.run(tf.global_variables_initializer())
-			agent_result = agnt.eval(0, [[.1, .2]], [[.1, .2, .3, .4]])
-			self.assertTrue(agent_result[0] in [[0], [1]])
-			self.assertEqual(agent_result[1].shape, (1, 4))
+		return Out.action(selected_action_op).state(hypothesis.o.state)
+
+	def get_my_givens(self):
+		givens = super(Agent, self).get_my_givens()
+		givens.update({self.i.hypothesis.i.state: self.state})
+		return givens
+
+	def process_my_outputs(self, outputs):
+		super(Agent, self).process_my_outputs(outputs)
+		if sx.is_dynamic_arg(self.i.hypothesis.i.state):
+			state_index = self.oz.index(self.o.state)
+			self.state = outputs[state_index]
+
+
+ob_space, ac_space = GymEnvironment.get_spaces('CartPole-v0')
+pdtype = make_pdtype(ac_space)
+
+
+class Suppress2(TestCase):
+	class TestHierarchicalBase(TestCase):
+		__slots__ = 'state_tensor',
+
+		def setUp(self):
+			self.hypo = Hypothesis(tf.placeholder(tf.float32, [None, 2], 'ob'), self.state_tensor)
+			self.agnt = Agent(
+				tf.placeholder(tf.float32, (), 'selected_index'),
+				[action_selector.Greedy(pdtype), action_selector.Stochastic(pdtype)],
+				self.hypo
+			)
+			self.agnt.state = Hypothesis.new_state()
+
+		def test_inputs(self):
+			ai = self.agnt.i
+			self.assertEqual(self.agnt.iz, [ai.selected_index, ai.selectors, ai.hypothesis])
+			hi = ai.hypothesis.i
+			expected_d_inps = [ai.selected_index, hi.ob]
+			if sx.is_dynamic_arg(self.state_tensor):
+				expected_d_inps.append(hi.state)
+			self.assertEqual(self.agnt.di, expected_d_inps)
+
+		def test_eval(self):
+			with tf.Session() as sess:
+				sess.run(tf.global_variables_initializer())
+				agent_result = self.agnt.run(0, [[.1, .2]])
+				self.assertTrue(agent_result[0] in [[0], [1]])
+				self.assertEqual(agent_result[1].shape, (1, 4))
+				old_state = self.agnt.state
+				agent_result = self.agnt.run(0, [[.1, .2]])
+				self.assertEqual(agent_result[1].shape, (1, 4))
+				self.assertTrue(
+					not numpy.alltrue(
+						numpy.equal(self.agnt.state, old_state)))  # Small possibility of a false positive here
+
+
+class TestDynamicStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
+	def setUp(self):
+		self.state_tensor = Hypothesis.new_state_placeholder()
+		super(TestDynamicStateHierarchicalBlock, self).setUp()
