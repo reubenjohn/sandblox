@@ -95,7 +95,7 @@ class Suppress1(object):
 			# TODO Use variable instead
 			self.bound_flattened_logic_arguments = FooLogic.args_call(sx.FlatBoundArguments(FooLogic.call))
 			self.logic_outputs = list(FooLogic.cached_args_call(FooLogic.call))
-			self.block_foo_ob = sx.cast_to_tf_block(None)  # To help IDEs help us ;)
+			self.block_foo_ob = None  # type: sx.TFBlock
 			self.bad_foo_context = None
 
 			self.options = tf.RunOptions()

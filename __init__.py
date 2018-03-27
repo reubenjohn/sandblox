@@ -200,10 +200,6 @@ class Block(object):
 		return ret
 
 
-def cast_to_block(ob) -> Block:
-	return ob
-
-
 class TFBlock(Block):
 	def build(self, *args, **kwargs):
 		raise NotImplementedError
@@ -243,10 +239,6 @@ class TFBlock(Block):
 		pass
 
 
-def cast_to_tf_block(ob) -> TFBlock:
-	return ob
-
-
 class StateShape(object):
 	def __init__(self, shape):
 		self._shape = shape
@@ -271,12 +263,8 @@ class StateShape(object):
 		return tf.assign(dest_state, src_state)
 
 
-def cast_to_state_shape(ob) -> StateShape:
-	return ob
-
-
 class StatefullTFBlock(TFBlock):
-	STATE = cast_to_state_shape(None)
+	STATE = None  # type: StateShape
 
 	def __init__(self, *args, **kwargs):
 		self.prev_state = self.next_state = self.state_index = self.state = None
@@ -389,45 +377,50 @@ def infer_abs_scope_name(self, scope_name: str = None):
 	return absolute_scope_name(scope_name)
 
 
+class Scope(object):
+	def __init__(self, scope_name: str):
+		self.rel = self.abs = None
+		self.setup(scope_name)
+
+	def setup(self, scope_name: str = None):
+		self.rel = infer_rel_scope_name(self, scope_name)
+		self.abs = absolute_scope_name(self.rel)
+
+	def make_unique(self, graph=None):
+		if graph is None:
+			graph = tf.get_default_graph()
+		graph.unique_name(self.rel)
+
+	@property
+	def exact_rel_pattern(self) -> str:
+		return self.abs + '/'
+
+	@property
+	def exact_abs_pattern(self) -> str:
+		return '^' + self.abs + '/'
+
+
+class UninitializedScope(Scope):
+	# noinspection PyMissingConstructor
+	def __init__(self):
+		pass
+
+	def __getattribute__(self, item):
+		raise AttributeError('The scope is only available after you call super constructor __init__.\n'
+							 'Alternatively, manually setup the scope with self.setup_scope(scope_name)')
+
+
 class TFObject(object):
-	__slots__ = '_rel_scope_name', '_abs_scope_name'
+	scope = UninitializedScope()
 
 	def __init__(self, scope_name: str = None, **kwargs):
-		self._rel_scope_name = self._abs_scope_name = None
-		self.setup_scope(scope_name)
+		if isinstance(self.scope, UninitializedScope):
+			self.scope = Scope(scope_name)
 		# noinspection PyArgumentList
 		super(TFObject, self).__init__(**kwargs)
 
-	def setup_scope(self, scope_name: str = None):
-		self._rel_scope_name = infer_rel_scope_name(self, scope_name)
-		self._abs_scope_name = absolute_scope_name(self._rel_scope_name)
-
-	def make_scope_unique(self, graph=None):
-		if graph is None:
-			graph = tf.get_default_graph()
-		graph.unique_name(self.rel_scope_name)
-
-	@property
-	def rel_scope_name(self):
-		if self._rel_scope_name is None:
-			raise AttributeError('rel_scope_name is only available after you call super constructor __init__.\n'
-								 'You may instead also use self.infer_rel_scope_name(self, scope_name)')
-		return self._rel_scope_name
-
-	@property
-	def abs_scope_name(self):
-		if self._abs_scope_name is None:
-			raise AttributeError('abs_scope_name is only available after you call super constructor __init__.\n'
-								 'You may instead also use self.infer_abs_scope_name(self, scope_name)')
-		return self._abs_scope_name
-
-	@property
-	def exact_rel_scope_name_pattern(self):
-		return "%s/" % self.abs_scope_name
-
-	@property
-	def exact_absolute_scope_name_pattern(self):
-		return "^%s/" % self.abs_scope_name
+	def setup_scope(self, scope_name):
+		self.scope = Scope(scope_name)
 
 
 class InpOutBase(object):
@@ -498,7 +491,7 @@ class TFFunction(TFObject):
 			name = func.__name__
 		super(TFFunction, self).__init__(name)
 
-		with tf.variable_scope(self.rel_scope_name, reuse=None):
+		with tf.variable_scope(self.scope.rel, reuse=None):
 			ret = func(*args, **kwargs)
 			if override_inputs:
 				self.i, self.o = ret
@@ -515,10 +508,10 @@ class TFFunction(TFObject):
 		return inp
 
 	def get_variables(self):
-		return tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.exact_absolute_scope_name_pattern)
+		return tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.scope.exact_abs_pattern)
 
 	def get_trainable_variables(self):
-		return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.exact_absolute_scope_name_pattern)
+		return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.scope.exact_abs_pattern)
 
 	def assign_trainable_vars(self, source_hypothesis_graph):
 		weight_update = [tf.assign(new, old) for (new, old) in zipsame(self.get_trainable_variables(),
@@ -552,12 +545,11 @@ def tf_function(scope_name: str = None, tf_func_class=TFFunction, override_input
 #
 
 class TFMethod(TFFunction):
-	def __init__(self, name: str, cls, method, override_inputs, *args,
-				 **kwargs):
+	def __init__(self, name: str, obj: [object, TFObject], method, override_inputs, *args, **kwargs):
 		method_name = name if name is not None else method.__name__
-		object_name = cls.rel_scope_name if isinstance(cls, TFObject) else type(cls).__name__
+		object_name = obj.scope.rel if isinstance(obj, TFObject) else type(obj).__name__
 		super(TFMethod, self).__init__(object_name + "/" + method_name, method, override_inputs, *args, **kwargs)
-		self.cls = cls
+		self.cls = obj
 		self.method = method
 		self.method_kargs = (args, kwargs)
 
