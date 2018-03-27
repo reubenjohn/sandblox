@@ -1,6 +1,7 @@
 import inspect
 import sys
 from collections import OrderedDict
+from typing import Type
 
 import numpy
 import tensorflow as tf
@@ -115,7 +116,7 @@ def soft_assign(self, *args):
 	"""
 	Useful to avoid false positive warnings from IDEs during __init__
 	:param self: the object on which to perform the soft initialization
-	:param a: the attribute key for which to probe based on which the assignment may or may not be performed
+	:param args: the attribute key (or tuple key value pair) for which to probe based on which the assignment may or may not be performed
 	:return:
 	"""
 	for arg in args:
@@ -320,7 +321,7 @@ def cast_to_stateful_tf_block(ob) -> StatefullTFBlock:
 def block(fn_or_class):
 	cls = fn_or_class if inspect.isclass(fn_or_class) else Block
 
-	def wrapper(fn) -> Block:
+	def wrapper(fn) -> Type[fn_or_class]:
 		class BlockFn(cls):
 			build = fn
 
@@ -336,7 +337,7 @@ def block(fn_or_class):
 		return wrapper(fn_or_class)
 
 
-def tf_block(fn) -> TFBlock:
+def tf_block(fn) -> Type[TFBlock]:
 	class TFBlockFn(TFBlock):
 		build = fn
 
@@ -350,7 +351,7 @@ def tf_block(fn) -> TFBlock:
 def stateful_tf_block(state_shape, cls=StatefullTFBlock):
 	assert isinstance(state_shape, StateShape)
 
-	def wrapper(fn) -> cls:
+	def wrapper(fn) -> Type[cls]:
 		class BlockFn(cls):
 			STATE = state_shape
 			build = fn
@@ -389,6 +390,8 @@ def infer_abs_scope_name(self, scope_name: str = None):
 
 
 class TFObject(object):
+	__slots__ = '_rel_scope_name', '_abs_scope_name'
+
 	def __init__(self, scope_name: str = None, **kwargs):
 		self._rel_scope_name = self._abs_scope_name = None
 		self.setup_scope(scope_name)

@@ -178,7 +178,7 @@ class TestBlockClassWithInternals(Suppress1.TestBlockBase):
 
 
 @sx.tf_block
-def hypothesis(ob, state):
+def dense_hypothesis(ob, state):
 	logits = tf.layers.dense(ob, 2)
 	next_state = tf.layers.dense(state, 4)
 	return Out.logits(logits).state(next_state)
@@ -204,7 +204,7 @@ class Suppress2(object):
 
 		def __init__(self, method_name: str = 'runTest'):
 			super(Suppress2.TestHierarchicalBase, self).__init__(method_name)
-			self.hypo = hypothesis(tf.placeholder(tf.float32, [None, 2], 'ob'), self.state_tensor)
+			self.hypo = dense_hypothesis(tf.placeholder(tf.float32, [None, 2], 'ob'), self.state_tensor)
 			self.agnt = agent(
 				tf.placeholder(tf.float32, (), 'selected_index'),
 				[action_selector.Greedy(pdtype), action_selector.Stochastic(pdtype)],
@@ -218,10 +218,10 @@ class Suppress2(object):
 			ai = self.agnt.i
 			self.assertEqual(self.agnt.iz, [ai.selected_index, ai.selectors, ai.hypothesis])
 			hi = ai.hypothesis.i
-			expected_d_inps = [ai.selected_index, hi.ob]
+			expected_di = [ai.selected_index, hi.ob]
 			if sx.is_dynamic_arg(self.state_tensor):
-				expected_d_inps.append(hi.state)
-			self.assertEqual(self.agnt.di, expected_d_inps)
+				expected_di.append(hi.state)
+			self.assertEqual(self.agnt.di, expected_di)
 
 		def test_eval(self):
 			with tf.Session() as sess:
@@ -247,7 +247,7 @@ class TestPlaceholderStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
 					numpy.equal(self.agnt.state, old_state)))  # Small possibility of a false positive here
 
 
-class TestVarialbleStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
+class TestVariableStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
 	def __init__(self, method_name: str = 'runTest'):
 		self.state_tensor = agent.STATE.new_variable()
-		super(TestVarialbleStateHierarchicalBlock, self).__init__(method_name)
+		super(TestVariableStateHierarchicalBlock, self).__init__(method_name)
