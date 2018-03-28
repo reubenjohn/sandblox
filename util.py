@@ -417,7 +417,7 @@ def lstm(xs, ms, s, scope, nh, init_scale=1.0):
 
 
 
-def function(inputs, outputs, updates=None, givens=None):
+def function(inputs, outputs, updates=None, givens=None, session: tf.Session = None):
 	"""Just like Theano function. Take a bunch of tensorflow placeholders and expressions
 	computed based on those placeholders and produces f(inputs) -> outputs. Function f takes
 	values to be fed to the input's placeholders and produces the values of the expressions
@@ -447,22 +447,23 @@ def function(inputs, outputs, updates=None, givens=None):
 	outputs: [tf.Variable] or tf.Variable
 		list of outputs or a single output to be returned from function. Returned
 		value will also have the same shape.
+	session: Optionally specify specific tf.Session to be used instead of the current default
 	"""
 	if isinstance(outputs, list):
-		return _Function(inputs, outputs, updates, givens=givens)
+		return _Function(inputs, outputs, updates, givens=givens, session=session)
 	elif isinstance(outputs, (dict, collections.OrderedDict)):
-		f = _Function(inputs, outputs.values(), updates, givens=givens)
+		f = _Function(inputs, outputs.values(), updates, givens=givens, session=session)
 		base = f.__call__
 		f.__call__ = lambda *args, **kwargs: type(outputs)(zip(outputs.keys(), base(*args, **kwargs)))
 		return f
 	else:
-		f = _Function(inputs, [outputs], updates, givens=givens)
+		f = _Function(inputs, [outputs], updates, givens=givens, session=session)
 		base = f.__call__
 		f.__call__ = lambda *args, **kwargs: base(*args, **kwargs)[0]
 
 
 class _Function(object):
-	def __init__(self, inputs, outputs, updates, givens, check_nan=False):
+	def __init__(self, inputs, outputs, updates, givens, check_nan=False, session: tf.Session = None):
 		for inpt in inputs:
 			if not issubclass(type(inpt), TfInput):
 				assert len(inpt.op.inputs) == 0, "inputs should all be placeholders of baselines.common.TfInput"
@@ -474,6 +475,7 @@ class _Function(object):
 		self.check_nan = check_nan
 		self.options = None
 		self.run_metadata = None
+		self.sess = session if session is not None else get_session()
 
 	def _feed_input(self, feed_dict, inpt, value):
 		if issubclass(type(inpt), TfInput):

@@ -1,4 +1,5 @@
 import time
+from typing import Type
 from unittest import TestCase
 
 import numpy
@@ -17,9 +18,18 @@ class FooLogic(object):
 	di = [tf.placeholder(tf.float32, (), 'y')]
 	args = [tf.ones((), tf.float32), di[0]]
 	kwargs = dict(extra=10)
-	args_call = lambda fn: fn(*FooLogic.args, **FooLogic.kwargs)
+
+	@staticmethod
+	def args_call(fn, **expansion):
+		expansion.update(FooLogic.kwargs)
+		return fn(*FooLogic.args, **expansion)
+
+	@staticmethod
+	def internal_args_call(fn, **expansion):
+		expansion.update(FooLogic.kwargs)
+		return fn(0, *FooLogic.args, **expansion)
+
 	cached_args_call = lambda fn: FooLogic.cached_call(fn, *FooLogic.args, **FooLogic.kwargs)
-	internal_args_call = lambda fn: fn(0, *FooLogic.args, **FooLogic.kwargs)
 
 	@staticmethod
 	def call(x, y, param_with_default=-5, **kwargs):
@@ -90,10 +100,11 @@ class Suppress1(object):
 	# Wrapped classes don't get tested themselves
 	# noinspection PyCallByClass
 	class TestBlockBase(TestCase):
+		target = None  # type: Type[sx.TFBlock]
+		bad_target = None  # type: Type[sx.TFBlock]
 		block_foo_ob = None  # type: sx.TFBlock
 		ELAPSE_LIMIT = 25000  # usec To accommodate slowness during debugging
 		ELAPSE_TARGET = 2500  # usec
-		COUNTER = 1
 
 		def __init__(self, method_name: str = 'runTest'):
 			super(Suppress1.TestBlockBase, self).__init__(method_name)
@@ -134,7 +145,9 @@ class Suppress1(object):
 				self.assertNotEqual(eval_100[1], eval_0[1])  # Boy aren't you unlucky if you fail this test XD
 
 		def test_bad_foo_assertion(self):
-			self.assertTrue('must either return' in str(self.bad_foo_context.exception))
+			with self.assertRaises(AssertionError) as bad_foo_context:
+				FooLogic.args_call(self.bad_target)
+			self.assertTrue('must either return' in str(bad_foo_context.exception))
 
 		def test_overhead(self):
 			self.block_foo_ob.eval = lambda *args: ()
@@ -155,18 +168,31 @@ class Suppress1(object):
 
 			self.block_foo_ob.built_fn = built_fn
 
+		def test_session_specification(self):
+			sess = tf.Session()
+			with tf.Session():
+				block = FooLogic.args_call(self.target, session=sess)
+				self.assertEqual(block.sess, sess)
+				block.set_session(tf.Session())
+				self.assertNotEqual(block.sess, sess)
+				with self.assertRaises(AssertionError) as bad_foo_context:
+					FooLogic.args_call(self.target, session='some_invalid_session')
+				self.assertTrue('must be of type tf.Session' in str(bad_foo_context.exception))
+
 
 class TestBlockFunction(Suppress1.TestBlockBase):
-	block_foo_ob = FooLogic.args_call(foo)
+	target = foo
+	bad_target = bad_foo
+	block_foo_ob = FooLogic.args_call(target)
 
 	def __init__(self, method_name: str = 'runTest'):
 		super(TestBlockFunction, self).__init__(method_name)
-		with self.assertRaises(AssertionError) as self.bad_foo_context:
-			FooLogic.args_call(bad_foo)
 
 
 class TestBlockClass(Suppress1.TestBlockBase):
-	block_foo_ob = FooLogic.args_call(Foo)
+	target = Foo
+	bad_target = BadFoo
+	block_foo_ob = FooLogic.args_call(target)
 
 	def setUp(self):
 		super(TestBlockClass, self).setUp()
@@ -178,11 +204,24 @@ class TestBlockClass(Suppress1.TestBlockBase):
 
 # noinspection PyCallByClass
 class TestBlockClassWithInternals(Suppress1.TestBlockBase):
+	target = FooWithInternalArgs
+	bad_target = BadFooWithInternalArgs
+
 	def setUp(self):
 		super(TestBlockClassWithInternals, self).setUp()
 		self.block_foo_ob = FooLogic.internal_args_call(FooWithInternalArgs)
 		with self.assertRaises(AssertionError) as self.bad_foo_context:
 			FooLogic.internal_args_call(BadFooWithInternalArgs)
+
+	def test_bad_foo_assertion(self):
+		with self.assertRaises(AssertionError) as bad_foo_context:
+			FooLogic.internal_args_call(self.bad_target)
+		self.assertTrue('must either return' in str(bad_foo_context.exception))
+
+	def test_session_specification(self):
+		sess = tf.Session()
+		block = FooLogic.internal_args_call(self.target, session=sess)
+		self.assertEqual(block.sess, sess)
 
 
 # TODO Handle default and implicit state management

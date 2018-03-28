@@ -249,11 +249,20 @@ class TFBlock(Block):
 		raise NotImplementedError
 
 	def __init__(self, *args, **kwargs):
+		sess = kwargs.pop('session', None)
+		assert sess is None or isinstance(sess, tf.Session), 'Specified session must be of type tf.Session'
 		super(TFBlock, self).__init__(*args, **kwargs)
 		self.givens = {}
 		self.options = None
 		self.run_metadata = None
-		self.built_fn = util.function(self.di, self.oz)
+		self.built_fn = util.function(self.di, self.oz, session=sess)
+
+	def set_session(self, session: tf.Session):
+		self.built_fn.sess = session
+
+	@property
+	def sess(self):
+		return self.built_fn.sess if self.built_fn.sess is not None else U.get_session()
 
 	def process_inputs(self, *args, **kwargs):
 		super(TFBlock, self).process_inputs(*args, **kwargs)
