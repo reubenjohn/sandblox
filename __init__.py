@@ -1,7 +1,7 @@
 import inspect
 import sys
 from collections import OrderedDict
-from typing import Type
+from typing import Type, Any
 
 import numpy
 import tensorflow as tf
@@ -142,13 +142,54 @@ def flattened_dynamic_arguments(inps: dict) -> list:
 	return result
 
 
+class Scope(object):
+	def __init__(self, obj, scope_name: str):
+		self.rel = self.abs = None
+		self.setup(obj, scope_name)
+
+	def setup(self, obj, scope_name: str = None):
+		self.rel = infer_rel_scope_name(obj, scope_name)
+		self.abs = absolute_scope_name(self.rel)
+
+	def make_unique(self, graph=None):
+		if graph is None:
+			graph = tf.get_default_graph()
+		graph.unique_name(self.rel)
+
+	@property
+	def exact_rel_pattern(self) -> str:
+		return self.abs + '/'
+
+	@property
+	def exact_abs_pattern(self) -> str:
+		return '^' + self.abs + '/'
+
+
+class UninitializedScope(Scope):
+	# noinspection PyMissingConstructor
+	def __init__(self):
+		pass
+
+	def __getattribute__(self, item):
+		raise AttributeError('The scope is only available after you call super constructor __init__.\n'
+							 'Alternatively, manually setup the scope with self.setup_scope(scope_name)')
+
+
 class Block(object):
+	default_scope_name = None
+	scope = UninitializedScope()
+
 	def __init__(self, *args, **kwargs):
-		super(Block, self).__init__()
+		if isinstance(self.scope, UninitializedScope):
+			self.scope = Scope(self, kwargs.pop('scope_name', self.default_scope_name))
 		self.o, self.oz, self.i, self.iz = None, None, None, None
 		self.di = []
 		self._build(*args, **kwargs)
 		self.built_fn = None
+		super(Block, self).__init__()
+
+	def setup_scope(self, scope_name):
+		self.scope = Scope(self, scope_name)
 
 	def eval(self, *args, **kwargs):
 		raise NotImplementedError
@@ -183,7 +224,9 @@ class Block(object):
 		self.iz = list(i.values())
 		self.di.extend(flattened_dynamic_arguments(i))
 
-		ret = self.build(*args, **kwargs)
+		with tf.variable_scope(self.scope.rel):
+			print('building in scope %s' % self.scope.rel)
+			ret = self.build(*args, **kwargs)
 
 		if isinstance(ret, Out.cls):
 			block_outputs = ret
@@ -200,6 +243,7 @@ class Block(object):
 		return ret
 
 
+# TODO Support passing session and name_scope as kwarg
 class TFBlock(Block):
 	def build(self, *args, **kwargs):
 		raise NotImplementedError
@@ -263,15 +307,15 @@ class StateShape(object):
 		return tf.assign(dest_state, src_state)
 
 
-class StatefullTFBlock(TFBlock):
+class StatefulTFBlock(TFBlock):
 	STATE = None  # type: StateShape
 
 	def __init__(self, *args, **kwargs):
 		self.prev_state = self.next_state = self.state_index = self.state = None
-		super(StatefullTFBlock, self).__init__(*args, **kwargs)
+		super(StatefulTFBlock, self).__init__(*args, **kwargs)
 
 	def _build(self, *args, **kwargs):
-		super(StatefullTFBlock, self)._build(*args, **kwargs)
+		super(StatefulTFBlock, self)._build(*args, **kwargs)
 		tuple_state = self.o.state
 		if isinstance(tuple_state, tuple):
 			self.prev_state, self.next_state = self.o.state
@@ -291,66 +335,90 @@ class StatefullTFBlock(TFBlock):
 		raise NotImplementedError
 
 	def get_my_givens(self):
-		givens = super(StatefullTFBlock, self).get_my_givens()
+		givens = super(StatefulTFBlock, self).get_my_givens()
 		if is_dynamic_arg(self.prev_state):
 			givens.update({self.prev_state: self.state})
 		return givens
 
 	def process_my_outputs(self, outputs):
-		super(StatefullTFBlock, self).process_my_outputs(outputs)
+		super(StatefulTFBlock, self).process_my_outputs(outputs)
 		if self.state_index is not None:
 			self.state = outputs[self.state_index]
 
 
-def cast_to_stateful_tf_block(ob) -> StatefullTFBlock:
+def cast_to_stateful_tf_block(ob) -> StatefulTFBlock:
 	return ob
 
 
-def block(fn_or_class):
-	cls = fn_or_class if inspect.isclass(fn_or_class) else Block
-
-	def wrapper(fn) -> Type[fn_or_class]:
-		class BlockFn(cls):
-			build = fn
-
-			def __init__(self, *args, **kwargs):
-				self.build = fn
-				super(BlockFn, self).__init__(*args, **kwargs)
-
-		return BlockFn
-
-	if inspect.isclass(fn_or_class):
-		return wrapper
-	else:
-		return wrapper(fn_or_class)
-
-
-def tf_block(fn) -> Type[TFBlock]:
-	class TFBlockFn(TFBlock):
+def get_class_for_block_fn(fn, base_cls):
+	class BlockFn(base_cls):
 		build = fn
+
+		default_scope_name = fn.__name__
 
 		def __init__(self, *args, **kwargs):
 			self.build = fn
-			super(TFBlockFn, self).__init__(*args, **kwargs)
+			super(BlockFn, self).__init__(*args, **kwargs)
 
-	return TFBlockFn
+		def eval(self, *args, **kwargs):
+			raise NotImplementedError
+
+	return BlockFn
 
 
-def stateful_tf_block(state_shape, cls=StatefullTFBlock):
+class Decorators(object):
+	@staticmethod
+	def block_decorator(fn) -> Type[Block]:
+		return get_class_for_block_fn(fn, Block)
+
+	@staticmethod
+	def block_meta_decorator(cls: Type[Any]) -> '(fn: Any) -> Type[Block]':
+		def block_decorator(fn) -> Type[Block]:
+			return get_class_for_block_fn(fn, cls)
+
+		return block_decorator
+
+	@staticmethod
+	def tf_block_decorator(fn) -> Type[TFBlock]:
+		return get_class_for_block_fn(fn, TFBlock)
+
+	@staticmethod
+	def tf_block_meta_decorator(cls: Type[Any]) -> '(fn: Any) -> Type[TFBlock]':
+		def tf_block_decorator(fn) -> Type[TFBlock]:
+			return get_class_for_block_fn(fn, cls)
+
+		return tf_block_decorator
+
+
+def block(cls) -> Type[Block]:
+	is_meta_decorator = not inspect.isfunction(cls)
+	return Decorators.block_meta_decorator(cls) if is_meta_decorator else Decorators.block_decorator(cls)
+
+
+def tf_block(tf_block_cls) -> Type[TFBlock]:
+	is_meta_decorator = not inspect.isfunction(tf_block_cls)
+	return Decorators.tf_block_meta_decorator(tf_block_cls) if is_meta_decorator else Decorators.tf_block_decorator(
+		tf_block_cls)
+
+
+def stateful_tf_block(state_shape, cls: Type[Any] = StatefulTFBlock) -> '(fn: Any) -> Type[StatefulTFBlock]':
 	assert isinstance(state_shape, StateShape)
+	assert issubclass(cls, StatefulTFBlock)
 
-	def wrapper(fn) -> Type[cls]:
-		class BlockFn(cls):
-			STATE = state_shape
+	def stateful_tf_block_decorator(fn) -> Type[StatefulTFBlock]:
+		class StatefulTFBlockFn(cls):
 			build = fn
+			default_scope_name = fn.__name__
+			STATE = state_shape
 
 			def __init__(self, *args, **kwargs):
 				self.build = fn
-				super(BlockFn, self).__init__(*args, **kwargs)
+				super(StatefulTFBlockFn, self).__init__(*args, **kwargs)
 
-		return BlockFn
+		# noinspection PyTypeChecker
+		return StatefulTFBlockFn
 
-	return wrapper
+	return stateful_tf_block_decorator
 
 
 def get_scope_name():
@@ -377,50 +445,17 @@ def infer_abs_scope_name(self, scope_name: str = None):
 	return absolute_scope_name(scope_name)
 
 
-class Scope(object):
-	def __init__(self, scope_name: str):
-		self.rel = self.abs = None
-		self.setup(scope_name)
-
-	def setup(self, scope_name: str = None):
-		self.rel = infer_rel_scope_name(self, scope_name)
-		self.abs = absolute_scope_name(self.rel)
-
-	def make_unique(self, graph=None):
-		if graph is None:
-			graph = tf.get_default_graph()
-		graph.unique_name(self.rel)
-
-	@property
-	def exact_rel_pattern(self) -> str:
-		return self.abs + '/'
-
-	@property
-	def exact_abs_pattern(self) -> str:
-		return '^' + self.abs + '/'
-
-
-class UninitializedScope(Scope):
-	# noinspection PyMissingConstructor
-	def __init__(self):
-		pass
-
-	def __getattribute__(self, item):
-		raise AttributeError('The scope is only available after you call super constructor __init__.\n'
-							 'Alternatively, manually setup the scope with self.setup_scope(scope_name)')
-
-
 class TFObject(object):
 	scope = UninitializedScope()
 
 	def __init__(self, scope_name: str = None, **kwargs):
 		if isinstance(self.scope, UninitializedScope):
-			self.scope = Scope(scope_name)
+			self.scope = Scope(self, scope_name)
 		# noinspection PyArgumentList
 		super(TFObject, self).__init__(**kwargs)
 
 	def setup_scope(self, scope_name):
-		self.scope = Scope(scope_name)
+		self.scope = Scope(self, scope_name)
 
 
 class InpOutBase(object):

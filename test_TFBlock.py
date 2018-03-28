@@ -90,12 +90,16 @@ class Suppress1(object):
 	# Wrapped classes don't get tested themselves
 	# noinspection PyCallByClass
 	class TestBlockBase(TestCase):
+		block_foo_ob = None  # type: sx.TFBlock
+		ELAPSE_LIMIT = 25000  # usec To accommodate slowness during debugging
+		ELAPSE_TARGET = 2500  # usec
+		COUNTER = 1
+
 		def __init__(self, method_name: str = 'runTest'):
 			super(Suppress1.TestBlockBase, self).__init__(method_name)
 			# TODO Use variable instead
 			self.bound_flattened_logic_arguments = FooLogic.args_call(sx.FlatBoundArguments(FooLogic.call))
 			self.logic_outputs = list(FooLogic.cached_args_call(FooLogic.call))
-			self.block_foo_ob = None  # type: sx.TFBlock
 			self.bad_foo_context = None
 
 			self.options = tf.RunOptions()
@@ -138,27 +142,35 @@ class Suppress1(object):
 			self.block_foo_ob.built_fn = None
 			with tf.Session():
 				then = time.time()
-				for _ in range(100):
-					self.block_foo_ob.run(100)
-				elapse = int((time.time() - then) * 1e6 / 10)
-				print(elapse)
-				self.assertTrue(elapse < 250)  # To accommodate slowness during debugging
+				[self.block_foo_ob.run(100) for _ in range(1000)]
+				elapse = int((time.time() - then) * 1e9 / 1000)
+				if elapse > Suppress1.TestBlockBase.ELAPSE_LIMIT:
+					overdue_percentage = \
+						(Suppress1.TestBlockBase.ELAPSE_LIMIT - elapse) * 100 / Suppress1.TestBlockBase.ELAPSE_LIMIT
+					self.fail('Overdue by %.1f%% (%3dns elapsed)' % (overdue_percentage, elapse))
+				else:
+					goal_progress = 100 + ((Suppress1.TestBlockBase.ELAPSE_TARGET - elapse) * 100 / elapse)
+					print('Efficiency goal progress %.1f%% (%3dns elapsed) - %s' % (
+						goal_progress, elapse, type(self).__name__))
+
 			self.block_foo_ob.built_fn = built_fn
 
 
 class TestBlockFunction(Suppress1.TestBlockBase):
+	block_foo_ob = FooLogic.args_call(foo)
+
 	def __init__(self, method_name: str = 'runTest'):
 		super(TestBlockFunction, self).__init__(method_name)
-		self.block_foo_ob = FooLogic.args_call(foo)
 		with self.assertRaises(AssertionError) as self.bad_foo_context:
 			FooLogic.args_call(bad_foo)
 
 
 class TestBlockClass(Suppress1.TestBlockBase):
+	block_foo_ob = FooLogic.args_call(Foo)
+
 	def setUp(self):
 		super(TestBlockClass, self).setUp()
 		# noinspection PyCallByClass
-		self.block_foo_ob = FooLogic.args_call(Foo)
 		with self.assertRaises(AssertionError) as self.bad_foo_context:
 			# noinspection PyCallByClass
 			FooLogic.args_call(BadFoo)
@@ -185,7 +197,7 @@ def dense_hypothesis(ob, state):
 
 
 @sx.stateful_tf_block(sx.StateShape([4]))
-def agent(selected_index, selectors: [ActionSelector], hypothesis) -> sx.StatefullTFBlock:
+def agent(selected_index, selectors: [ActionSelector], hypothesis) -> sx.StatefulTFBlock:
 	selected_action_op = tf.gather(
 		[selector(hypothesis.o.logits) for selector in selectors],
 		tf.cast(selected_index, tf.int32, "action_selected_index"),
@@ -198,18 +210,24 @@ ob_space, ac_space = GymEnvironment.get_spaces('CartPole-v0')
 pdtype = make_pdtype(ac_space)
 
 
+def build_hypothesis(state_tensor, scope_name):
+	return dense_hypothesis(tf.placeholder(tf.float32, [None, 2], 'ob'), state_tensor, scope_name=scope_name)
+
+
+def build_agent(hypothesis):
+	return agent(
+		tf.placeholder(tf.float32, (), 'selected_index'),
+		[action_selector.Greedy(pdtype), action_selector.Stochastic(pdtype)],
+		hypothesis
+	)
+
+
 class Suppress2(object):
 	class TestHierarchicalBase(TestCase):
-		__slots__ = 'state_tensor',
+		__slots__ = 'state_tensor', 'agnt', 'hypo'
 
 		def __init__(self, method_name: str = 'runTest'):
 			super(Suppress2.TestHierarchicalBase, self).__init__(method_name)
-			self.hypo = dense_hypothesis(tf.placeholder(tf.float32, [None, 2], 'ob'), self.state_tensor)
-			self.agnt = agent(
-				tf.placeholder(tf.float32, (), 'selected_index'),
-				[action_selector.Greedy(pdtype), action_selector.Stochastic(pdtype)],
-				self.hypo
-			)
 
 		def setUp(self):
 			self.agnt.state = agent.STATE.new()
@@ -232,9 +250,9 @@ class Suppress2(object):
 
 
 class TestPlaceholderStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
-	def __init__(self, method_name: str = 'runTest'):
-		self.state_tensor = agent.STATE.new_placeholder()
-		super(TestPlaceholderStateHierarchicalBlock, self).__init__(method_name)
+	state_tensor = agent.STATE.new_placeholder()
+	hypo = build_hypothesis(state_tensor, scope_name='placeholder_hypothesis')
+	agnt = build_agent(hypo)
 
 	def test_state_update(self):
 		with tf.Session() as sess:
@@ -248,6 +266,6 @@ class TestPlaceholderStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
 
 
 class TestVariableStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
-	def __init__(self, method_name: str = 'runTest'):
-		self.state_tensor = agent.STATE.new_variable()
-		super(TestVariableStateHierarchicalBlock, self).__init__(method_name)
+	state_tensor = agent.STATE.new_variable()
+	hypo = build_hypothesis(state_tensor, scope_name='variable_hypothesis')
+	agnt = build_agent(hypo)
