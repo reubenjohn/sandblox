@@ -1,12 +1,9 @@
 import time
-from typing import Type
 from unittest import TestCase
 
-import numpy
-import tensorflow as tf
-
-import sandblox as sx
-from sandblox import Out
+from . import *
+from . import Out
+from . import util
 
 
 class FooLogic(object):
@@ -33,25 +30,25 @@ class FooLogic(object):
 
 	@staticmethod
 	def cached_call(fn, *args, **kwargs):
-		bound_args = sx.util.FlatArgumentsBinder(fn)(*args, **kwargs)
+		bound_args = util.FlatArgumentsBinder(fn)(*args, **kwargs)
 		key = fn.__name__ + ':' + str(bound_args)
 		if key not in FooLogic.call_cache:
 			FooLogic.call_cache[key] = fn(*args, **kwargs)
 		return FooLogic.call_cache[key]
 
 
-@sx.tf_function
+@tf_function
 def foo(x, y, param_with_default=-5, **kwargs):
 	# noinspection PyTypeChecker
 	b, a = FooLogic.cached_call(FooLogic.call, x, y, param_with_default, **kwargs)
 
-	if Out == sx.BlockOutsKwargs:
+	if Out == BlockOutsKwargs:
 		return Out(b=b, a=a)
 	else:
 		return Out.b(b).a(a)
 
 
-@sx.tf_function
+@tf_function
 def bad_foo(x, y, param_with_default=-5, **kwargs):
 	# noinspection PyTypeChecker
 	b, a = FooLogic.cached_call(FooLogic.call, x, y, param_with_default, **kwargs)
@@ -59,20 +56,20 @@ def bad_foo(x, y, param_with_default=-5, **kwargs):
 
 
 # noinspection PyClassHasNoInit
-class Foo(sx.TFFunction):
+class Foo(TFFunction):
 	def build(self, x, y, param_with_default=-5, **kwargs):
 		# noinspection PyTypeChecker
 		b, a = FooLogic.cached_call(FooLogic.call, x, y, param_with_default, **kwargs)
 
 		# TODO Test both cases for python 3.6+
-		if Out == sx.BlockOutsKwargs:
+		if Out == BlockOutsKwargs:
 			return Out(b=b, a=a)
 		else:
 			return Out.b(b).a(a)
 
 
 # noinspection PyClassHasNoInit
-class BadFoo(sx.TFFunction):
+class BadFoo(TFFunction):
 	def build(self, x, y, param_with_default=-5, **kwargs):
 		# noinspection PyTypeChecker
 		b, a = FooLogic.cached_call(FooLogic.call, x, y, param_with_default, **kwargs)
@@ -96,11 +93,11 @@ class Suppress1(object):
 	# Wrapped classes don't get tested themselves
 	# noinspection PyCallByClass
 	class TestBlockBase(TestCase):
-		target = None  # type: Type[sx.TFFunction]
-		bad_target = None  # type: Type[sx.TFFunction]
-		block_foo_ob = None  # type: sx.TFFunction
+		target = None  # type: Type[TFFunction]
+		bad_target = None  # type: Type[TFFunction]
+		block_foo_ob = None  # type: TFFunction
 
-		def create_block_ob(self, **props) -> sx.TFFunction:
+		def create_block_ob(self, **props) -> TFFunction:
 			raise NotImplementedError
 
 		ELAPSE_LIMIT = 25000  # usec To accommodate slowness during debugging
@@ -109,7 +106,7 @@ class Suppress1(object):
 		def __init__(self, method_name: str = 'runTest'):
 			super(Suppress1.TestBlockBase, self).__init__(method_name)
 			# TODO Use variable instead
-			self.bound_flattened_logic_arguments = FooLogic.args_call(sx.util.FlatArgumentsBinder(FooLogic.call))
+			self.bound_flattened_logic_arguments = FooLogic.args_call(util.FlatArgumentsBinder(FooLogic.call))
 			self.logic_outputs = list(FooLogic.cached_args_call(FooLogic.call))
 
 			self.options = tf.RunOptions()
@@ -187,7 +184,7 @@ class TestBlockFunction(Suppress1.TestBlockBase):
 	block_foo_ob = FooLogic.args_call(target)
 
 	def create_block_ob(self, **props):
-		return FooLogic.args_call(TestBlockFunction.target, props=sx.Props(**props))
+		return FooLogic.args_call(TestBlockFunction.target, props=Props(**props))
 
 	def __init__(self, method_name: str = 'runTest'):
 		super(TestBlockFunction, self).__init__(method_name)
@@ -233,25 +230,25 @@ class TestBlockClassWithProps(Suppress1.TestBlockBase):
 # TODO Lifecycle that fuses dynamic & static graph based computing
 
 
-@sx.tf_function(default_props=sx.Props(state_manager=sx.StateManager([4])))
+@tf_function(default_props=Props(state_manager=StateManager([4])))
 def dense_hypothesis(ob, state):
 	logits = tf.layers.dense(ob, 2)
 	next_state = tf.layers.dense(state, 4)
 	return Out.logits(logits).state(next_state)
 
 
-class KGreedy(sx.TFFunction):
+class KGreedy(TFFunction):
 	def build(self, logits):
-		return sx.Out.action(tf.nn.top_k(logits, self.props.k)[1])
+		return Out.action(tf.nn.top_k(logits, self.props.k)[1])
 
 
-@sx.tf_function
+@tf_function
 def greedy(logits):
 	argmax = tf.expand_dims(tf.argmax(logits, axis=1, output_type=tf.int32), axis=0)
-	return sx.Out.action(tf.concat([argmax, argmax], axis=1))  # Just to have the dimentions match with k_greedy = 2
+	return Out.action(tf.concat([argmax, argmax], axis=1))  # Just to have the dimentions match with k_greedy = 2
 
 
-def agent_logic(selected_index, selectors, hypothesis) -> sx.Out:
+def agent_logic(selected_index, selectors, hypothesis) -> Out:
 	actions = [selector(hypothesis.o.logits).o.action for selector in selectors]
 	selected_action_op = tf.gather(
 		actions,
@@ -262,14 +259,14 @@ def agent_logic(selected_index, selectors, hypothesis) -> sx.Out:
 		(hypothesis.i.state, hypothesis.props.state_manager, hypothesis.o.state))
 
 
-@sx.stateful_tf_function(None)
-def agent(selected_index, selectors, hypothesis) -> sx.StatefulTFFunction:
+@stateful_tf_function(None)
+def agent(selected_index, selectors, hypothesis) -> StatefulTFFunction:
 	return agent_logic(selected_index, selectors, hypothesis)
 
 
 def build_hypothesis(state_tensor, scope_name):
 	return dense_hypothesis(tf.placeholder(tf.float32, [None, 2], 'ob'), state_tensor,
-							props=sx.Props(scope_name=scope_name))
+							props=Props(scope_name=scope_name))
 
 
 def build_agent(agent_cls, hypothesis):
@@ -292,7 +289,7 @@ class Suppress2(object):
 			self.assertEqual(self.agnt.iz, [ai.selected_index, ai.selectors, ai.hypothesis])
 			hi = ai.hypothesis.i
 			expected_di = [ai.selected_index, hi.ob]
-			if sx.is_dynamic_arg(self.state_tensor):
+			if is_dynamic_arg(self.state_tensor):
 				expected_di.append(hi.state)
 			self.assertEqual(self.agnt.di, expected_di)
 
@@ -332,8 +329,8 @@ class TestVariableStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
 	agnt = build_agent(agent, hypo)
 
 
-@sx.stateful_tf_function(dense_hypothesis.props.state_manager)
-def default_state_manager_agent(selected_index, selectors, hypothesis) -> sx.StatefulTFFunction:
+@stateful_tf_function(dense_hypothesis.props.state_manager)
+def default_state_manager_agent(selected_index, selectors, hypothesis) -> StatefulTFFunction:
 	return agent_logic(selected_index, selectors, hypothesis)
 
 
