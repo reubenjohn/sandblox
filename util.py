@@ -2,7 +2,9 @@ import builtins
 import collections
 import copy
 import functools
+import inspect
 import os
+from collections import OrderedDict
 
 import numpy as np
 import tensorflow as tf  # pylint: ignore-module
@@ -131,7 +133,7 @@ class TfInput(object):
 class PlacholderTfInput(TfInput):
 	def __init__(self, placeholder):
 		"""Wrapper for regular tensorflow placeholder."""
-		super().__init__(placeholder.name)
+		super(PlacholderTfInput, self).__init__(placeholder.name)
 		self._placeholder = placeholder
 
 	def get(self):
@@ -475,13 +477,20 @@ class _Function(object):
 		self.check_nan = check_nan
 		self.options = None
 		self.run_metadata = None
-		self.sess = session if session is not None else get_session()
+		self._sess = session
 
 	def _feed_input(self, feed_dict, inpt, value):
 		if issubclass(type(inpt), TfInput):
 			feed_dict.update(inpt.make_feed_dict(value))
 		elif is_placeholder(inpt):
 			feed_dict[inpt] = value
+
+	@property
+	def sess(self):
+		return self._sess if self._sess is not None else get_session()
+
+	def set_session(self, sess: tf.Session):
+		self._sess = sess
 
 	def __call__(self, *args, **kwargs):
 		assert len(args) <= len(self.inputs), "Too many arguments provided"
@@ -505,8 +514,8 @@ class _Function(object):
 		# Update feed dict with givens.
 		for inpt in self.givens:
 			feed_dict[inpt] = feed_dict.get(inpt, self.givens[inpt])
-		results = get_session().run(self.outputs_update, feed_dict=feed_dict, options=self.options,
-									run_metadata=self.run_metadata)[:-1]
+		results = self.sess.run(self.outputs_update, feed_dict=feed_dict, options=self.options,
+								run_metadata=self.run_metadata)[:-1]
 		self.options = None
 		self.run_metadata = None
 		if self.check_nan:
@@ -831,3 +840,36 @@ def reset():
 	_PLACEHOLDER_CACHE = {}
 	VARIABLES = {}
 	tf.reset_default_graph()
+
+
+class FlatArgumentsBinder(object):
+	def __init__(self, fn):
+		self.signature = inspect.signature(fn)
+
+	@staticmethod
+	def _flatten_kwargs(bound_args: OrderedDict):
+		if 'kwargs' in bound_args:  # TODO Handle case where the key word arguments is not called 'kwargs'
+			bound_args.update(bound_args['kwargs'])
+			bound_args.pop('kwargs')
+
+	def __call__(self, *args, **kwargs) -> OrderedDict:
+		bound_args = self.signature.bind(*args, **kwargs)
+		bound_args.apply_defaults()
+		arguments = bound_args.arguments
+		self._flatten_kwargs(arguments)
+		return arguments
+
+	def partition(self, *args, **kwargs):
+		signature_params = [val.name for val in self.signature.parameters.values() if
+							val.kind == val.POSITIONAL_OR_KEYWORD]
+		extras_dict = dict()
+		for key in kwargs:
+			if key not in signature_params:
+				extras_dict[key] = kwargs[key]
+		for key in extras_dict:
+			kwargs.pop(key)
+		return args, kwargs, extras_dict
+
+	def overflow_bind(self, *args, **kwargs):
+		args, kwargs, extras = self.partition(*args, **kwargs)
+		return self.__call__(*args, **kwargs), extras

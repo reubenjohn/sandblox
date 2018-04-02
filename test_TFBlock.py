@@ -6,10 +6,6 @@ import numpy
 import tensorflow as tf
 
 import sandblox as sx
-from reils.hypothesis import action_selector
-from reils.hypothesis.action_selector import ActionSelector
-from reils.utils.distributions import make_pdtype
-from reils_gym import GymEnvironment
 from sandblox import Out
 
 
@@ -37,14 +33,14 @@ class FooLogic(object):
 
 	@staticmethod
 	def cached_call(fn, *args, **kwargs):
-		bound_args = sx.FlatBoundArguments(fn)(*args, **kwargs)
+		bound_args = sx.util.FlatArgumentsBinder(fn)(*args, **kwargs)
 		key = fn.__name__ + ':' + str(bound_args)
 		if key not in FooLogic.call_cache:
 			FooLogic.call_cache[key] = fn(*args, **kwargs)
 		return FooLogic.call_cache[key]
 
 
-@sx.tf_block
+@sx.tf_function
 def foo(x, y, param_with_default=-5, **kwargs):
 	# noinspection PyTypeChecker
 	b, a = FooLogic.cached_call(FooLogic.call, x, y, param_with_default, **kwargs)
@@ -55,7 +51,7 @@ def foo(x, y, param_with_default=-5, **kwargs):
 		return Out.b(b).a(a)
 
 
-@sx.tf_block
+@sx.tf_function
 def bad_foo(x, y, param_with_default=-5, **kwargs):
 	# noinspection PyTypeChecker
 	b, a = FooLogic.cached_call(FooLogic.call, x, y, param_with_default, **kwargs)
@@ -63,7 +59,7 @@ def bad_foo(x, y, param_with_default=-5, **kwargs):
 
 
 # noinspection PyClassHasNoInit
-class Foo(sx.TFBlock):
+class Foo(sx.TFFunction):
 	def build(self, x, y, param_with_default=-5, **kwargs):
 		# noinspection PyTypeChecker
 		b, a = FooLogic.cached_call(FooLogic.call, x, y, param_with_default, **kwargs)
@@ -76,7 +72,7 @@ class Foo(sx.TFBlock):
 
 
 # noinspection PyClassHasNoInit
-class BadFoo(sx.TFBlock):
+class BadFoo(sx.TFFunction):
 	def build(self, x, y, param_with_default=-5, **kwargs):
 		# noinspection PyTypeChecker
 		b, a = FooLogic.cached_call(FooLogic.call, x, y, param_with_default, **kwargs)
@@ -84,34 +80,37 @@ class BadFoo(sx.TFBlock):
 		return b, a
 
 
-class FooWithInternalArgs(Foo):
-	def __init__(self, exclusive_constructor_arg, x, y, param_with_default=-5, **kwargs):
-		super(Foo, self).__init__(x, y, param_with_default, **kwargs)
-		self.internal_arg = exclusive_constructor_arg
+class FooWithProps(Foo):
+	def __init__(self, *args, **kwargs):
+		super(Foo, self).__init__(*args, **kwargs)
+		assert self.props.my_prop == 0
 
 
-class BadFooWithInternalArgs(BadFoo):
-	def __init__(self, exclusive_constructor_arg, x, y, param_with_default=-5, **kwargs):
-		super(BadFoo, self).__init__(x, y, param_with_default, **kwargs)
-		self.internal_arg = exclusive_constructor_arg
+class BadFooWithProps(BadFoo):
+	def __init__(self, *args, **kwargs):
+		super(BadFoo, self).__init__(*args, **kwargs)
+		assert self.props.my_prop == 0
 
 
 class Suppress1(object):
 	# Wrapped classes don't get tested themselves
 	# noinspection PyCallByClass
 	class TestBlockBase(TestCase):
-		target = None  # type: Type[sx.TFBlock]
-		bad_target = None  # type: Type[sx.TFBlock]
-		block_foo_ob = None  # type: sx.TFBlock
+		target = None  # type: Type[sx.TFFunction]
+		bad_target = None  # type: Type[sx.TFFunction]
+		block_foo_ob = None  # type: sx.TFFunction
+
+		def create_block_ob(self, **props) -> sx.TFFunction:
+			raise NotImplementedError
+
 		ELAPSE_LIMIT = 25000  # usec To accommodate slowness during debugging
 		ELAPSE_TARGET = 2500  # usec
 
 		def __init__(self, method_name: str = 'runTest'):
 			super(Suppress1.TestBlockBase, self).__init__(method_name)
 			# TODO Use variable instead
-			self.bound_flattened_logic_arguments = FooLogic.args_call(sx.FlatBoundArguments(FooLogic.call))
+			self.bound_flattened_logic_arguments = FooLogic.args_call(sx.util.FlatArgumentsBinder(FooLogic.call))
 			self.logic_outputs = list(FooLogic.cached_args_call(FooLogic.call))
-			self.bad_foo_context = None
 
 			self.options = tf.RunOptions()
 			self.options.output_partition_graphs = True
@@ -150,6 +149,7 @@ class Suppress1(object):
 			self.assertTrue('must either return' in str(bad_foo_context.exception))
 
 		def test_overhead(self):
+			# TODO Measure relative execution time of empty eval block to full eval block instead of absolute time
 			self.block_foo_ob.eval = lambda *args: ()
 			built_fn = self.block_foo_ob.built_fn
 			self.block_foo_ob.built_fn = None
@@ -168,15 +168,16 @@ class Suppress1(object):
 
 			self.block_foo_ob.built_fn = built_fn
 
+		# TODO Test scope_name
 		def test_session_specification(self):
 			sess = tf.Session()
 			with tf.Session():
-				block = FooLogic.args_call(self.target, session=sess)
+				block = self.create_block_ob(session=sess)
 				self.assertEqual(block.sess, sess)
 				block.set_session(tf.Session())
 				self.assertNotEqual(block.sess, sess)
 				with self.assertRaises(AssertionError) as bad_foo_context:
-					FooLogic.args_call(self.target, session='some_invalid_session')
+					self.create_block_ob(session='some_invalid_session')
 				self.assertTrue('must be of type tf.Session' in str(bad_foo_context.exception))
 
 
@@ -185,33 +186,36 @@ class TestBlockFunction(Suppress1.TestBlockBase):
 	bad_target = bad_foo
 	block_foo_ob = FooLogic.args_call(target)
 
+	def create_block_ob(self, **props):
+		return FooLogic.args_call(TestBlockFunction.target, props=sx.Props(**props))
+
 	def __init__(self, method_name: str = 'runTest'):
 		super(TestBlockFunction, self).__init__(method_name)
 
 
 class TestBlockClass(Suppress1.TestBlockBase):
 	target = Foo
-	bad_target = BadFoo
-	block_foo_ob = FooLogic.args_call(target)
+	bad_target = BadFoo()
+	block_foo_ob = FooLogic.args_call(target())
+
+	def create_block_ob(self, **props):
+		return TestBlockClass.target(**props)
 
 	def setUp(self):
 		super(TestBlockClass, self).setUp()
-		# noinspection PyCallByClass
-		with self.assertRaises(AssertionError) as self.bad_foo_context:
-			# noinspection PyCallByClass
-			FooLogic.args_call(BadFoo)
 
 
 # noinspection PyCallByClass
-class TestBlockClassWithInternals(Suppress1.TestBlockBase):
-	target = FooWithInternalArgs
-	bad_target = BadFooWithInternalArgs
+class TestBlockClassWithProps(Suppress1.TestBlockBase):
+	target = FooWithProps
+	bad_target = BadFooWithProps(my_prop=0)
+	block_foo_ob = FooLogic.args_call(target(my_prop=0))
+
+	def create_block_ob(self, **props):
+		return TestBlockClass.target(**props)
 
 	def setUp(self):
-		super(TestBlockClassWithInternals, self).setUp()
-		self.block_foo_ob = FooLogic.internal_args_call(FooWithInternalArgs)
-		with self.assertRaises(AssertionError) as self.bad_foo_context:
-			FooLogic.internal_args_call(BadFooWithInternalArgs)
+		super(TestBlockClassWithProps, self).setUp()
 
 	def test_bad_foo_assertion(self):
 		with self.assertRaises(AssertionError) as bad_foo_context:
@@ -220,7 +224,8 @@ class TestBlockClassWithInternals(Suppress1.TestBlockBase):
 
 	def test_session_specification(self):
 		sess = tf.Session()
-		block = FooLogic.internal_args_call(self.target, session=sess)
+		block = self.target(my_prop=0, session=sess)
+		block = FooLogic.args_call(block)
 		self.assertEqual(block.sess, sess)
 
 
@@ -228,35 +233,49 @@ class TestBlockClassWithInternals(Suppress1.TestBlockBase):
 # TODO Lifecycle that fuses dynamic & static graph based computing
 
 
-@sx.tf_block
+@sx.tf_function(default_props=sx.Props(state_manager=sx.StateManager([4])))
 def dense_hypothesis(ob, state):
 	logits = tf.layers.dense(ob, 2)
 	next_state = tf.layers.dense(state, 4)
 	return Out.logits(logits).state(next_state)
 
 
-@sx.stateful_tf_block(sx.StateShape([4]))
-def agent(selected_index, selectors: [ActionSelector], hypothesis) -> sx.StatefulTFBlock:
+class KGreedy(sx.TFFunction):
+	def build(self, logits):
+		return sx.Out.action(tf.nn.top_k(logits, self.props.k)[1])
+
+
+@sx.tf_function
+def greedy(logits):
+	argmax = tf.expand_dims(tf.argmax(logits, axis=1, output_type=tf.int32), axis=0)
+	return sx.Out.action(tf.concat([argmax, argmax], axis=1))  # Just to have the dimentions match with k_greedy = 2
+
+
+def agent_logic(selected_index, selectors, hypothesis) -> sx.Out:
+	actions = [selector(hypothesis.o.logits).o.action for selector in selectors]
 	selected_action_op = tf.gather(
-		[selector(hypothesis.o.logits) for selector in selectors],
+		actions,
 		tf.cast(selected_index, tf.int32, "action_selected_index"),
 		name="action"
 	)
-	return Out.action(selected_action_op).state((hypothesis.i.state, hypothesis.o.state))
+	return Out.action(selected_action_op).state(
+		(hypothesis.i.state, hypothesis.props.state_manager, hypothesis.o.state))
 
 
-ob_space, ac_space = GymEnvironment.get_spaces('CartPole-v0')
-pdtype = make_pdtype(ac_space)
+@sx.stateful_tf_function(None)
+def agent(selected_index, selectors, hypothesis) -> sx.StatefulTFFunction:
+	return agent_logic(selected_index, selectors, hypothesis)
 
 
 def build_hypothesis(state_tensor, scope_name):
-	return dense_hypothesis(tf.placeholder(tf.float32, [None, 2], 'ob'), state_tensor, scope_name=scope_name)
+	return dense_hypothesis(tf.placeholder(tf.float32, [None, 2], 'ob'), state_tensor,
+							props=sx.Props(scope_name=scope_name))
 
 
-def build_agent(hypothesis):
-	return agent(
+def build_agent(agent_cls, hypothesis):
+	return agent_cls(
 		tf.placeholder(tf.float32, (), 'selected_index'),
-		[action_selector.Greedy(pdtype), action_selector.Stochastic(pdtype)],
+		[greedy, KGreedy(k=2)],
 		hypothesis
 	)
 
@@ -267,9 +286,6 @@ class Suppress2(object):
 
 		def __init__(self, method_name: str = 'runTest'):
 			super(Suppress2.TestHierarchicalBase, self).__init__(method_name)
-
-		def setUp(self):
-			self.agnt.state = agent.STATE.new()
 
 		def test_inputs(self):
 			ai = self.agnt.i
@@ -284,27 +300,62 @@ class Suppress2(object):
 			with tf.Session() as sess:
 				sess.run(tf.global_variables_initializer())
 				agent_result = self.agnt.run(0, [[.1, .2]])
-				self.assertTrue(agent_result[0] in [[0], [1]])
+				selections = agent_result[0]
+				self.assertTrue(
+					isinstance(selections, numpy.ndarray) and
+					selections.dtype == numpy.int32 and selections.shape == (1, 2)
+				)
 				self.assertEqual(agent_result[1].shape, (1, 4))
 
 
 class TestPlaceholderStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
-	state_tensor = agent.STATE.new_placeholder()
+	state_tensor = dense_hypothesis.props.state_manager.new_placeholder()
 	hypo = build_hypothesis(state_tensor, scope_name='placeholder_hypothesis')
-	agnt = build_agent(hypo)
+	agnt = build_agent(agent, hypo)
+	agnt.state = dense_hypothesis.props.state_manager.new()
 
 	def test_state_update(self):
 		with tf.Session() as sess:
+			# TODO Make sandblox handle global variable initialization
 			sess.run(tf.global_variables_initializer())
 			old_state = self.agnt.state
 			agent_result = self.agnt.run(0, [[.1, .2]])
 			self.assertEqual(agent_result[1].shape, (1, 4))
+			# State should be updated: Small possibility of a false failure here
 			self.assertTrue(
-				not numpy.alltrue(
-					numpy.equal(self.agnt.state, old_state)))  # Small possibility of a false positive here
+				not numpy.alltrue(numpy.equal(self.agnt.state, old_state)))
 
 
 class TestVariableStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
-	state_tensor = agent.STATE.new_variable()
+	state_tensor = dense_hypothesis.props.state_manager.new_variable()
+	hypo = build_hypothesis(state_tensor, scope_name='variable_hypothesis2')
+	agnt = build_agent(agent, hypo)
+
+
+@sx.stateful_tf_function(dense_hypothesis.props.state_manager)
+def default_state_manager_agent(selected_index, selectors, hypothesis) -> sx.StatefulTFFunction:
+	return agent_logic(selected_index, selectors, hypothesis)
+
+
+class TestPlaceholderDefaultStateManagerHierarchicalBlock(Suppress2.TestHierarchicalBase):
+	state_tensor = dense_hypothesis.props.state_manager.new_placeholder()
+	hypo = build_hypothesis(state_tensor, scope_name='placeholder_hypothesis2')
+	agnt = build_agent(default_state_manager_agent, hypo)
+	agnt.state = dense_hypothesis.props.state_manager.new()
+
+	def test_state_update(self):
+		with tf.Session() as sess:
+			# TODO Make sandblox handle global variable initialization behind the scenes
+			sess.run(tf.global_variables_initializer())
+			old_state = self.agnt.state
+			agent_result = self.agnt.run(0, [[.1, .2]])
+			self.assertEqual(agent_result[1].shape, (1, 4))
+			# State should be updated: Small possibility of a false failure here
+			self.assertTrue(
+				not numpy.alltrue(numpy.equal(self.agnt.state, old_state)))
+
+
+class TestVariableDefaultStateManagerHierarchicalBlock(Suppress2.TestHierarchicalBase):
+	state_tensor = dense_hypothesis.props.state_manager.new_variable()
 	hypo = build_hypothesis(state_tensor, scope_name='variable_hypothesis')
-	agnt = build_agent(hypo)
+	agnt = build_agent(default_state_manager_agent, hypo)

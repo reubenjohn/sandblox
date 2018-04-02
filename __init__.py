@@ -1,6 +1,5 @@
 import inspect
 import sys
-from collections import OrderedDict
 from typing import Type, Any
 
 import numpy
@@ -9,29 +8,16 @@ import tensorflow as tf
 from sandblox.util import zipsame
 from . import util as U
 
+# TODO Introduce DesignViolation escalation system
+# TODO Implement sandblox saving mechanism
 
-class FlatBoundArguments(object):
-	def __init__(self, fn):
-		self.signature = inspect.signature(fn)
-
-	@staticmethod
-	def _flatten_kwargs(bound_args: OrderedDict):
-		if 'kwargs' in bound_args:
-			bound_args.update(bound_args['kwargs'])
-			bound_args.pop('kwargs')
-
-	def __call__(self, *args, **kwargs) -> OrderedDict:
-		bound_args = self.signature.bind(*args, **kwargs)
-		bound_args.apply_defaults()
-		arguments = bound_args.arguments
-		self._flatten_kwargs(arguments)
-		return arguments
+TFGraphKeys = [val for key, val in zip(tf.GraphKeys.__dict__.keys(), tf.GraphKeys.__dict__.values()) if
+			   isinstance(val, str) and '__' not in key]
 
 
 class DictAttrs(object):
-	def __init__(self, dic: dict = None):
-		if dic is not None:
-			self.__dict__.update(dic)
+	def __init__(self, **dic):
+		self.__dict__.update(dic)
 
 	def __iter__(self):
 		return self.__dict__.__iter__()
@@ -46,17 +32,7 @@ class DictAttrs(object):
 		return self.__dict__.__str__()
 
 
-class AttrFactory(object):
-	def __init__(self, attr_builder_class):
-		self.cls = attr_builder_class
-
-	def __getattr__(self, item):
-		if item == 'cls':
-			return self.cls
-		return self.cls().__getattr__(item)
-
-
-class AttrBuilder:
+class DictAttrBuilder:
 	def _on_new_attr_val(self, key, val):
 		raise NotImplementedError
 
@@ -68,21 +44,21 @@ class AttrBuilder:
 		return lambda val: self._new_attr_val(item, val)
 
 
-class BlockOutsBase(AttrBuilder):
-	def add_output(self, key, val):
+class BlockOutsBase(DictAttrBuilder):
+	def _on_new_attr_val(self, key, val):
 		if key in self.o:
 			print('Warning an output named %s already exists with value: %s' % (key, self.o[key]))
 		self.o[key] = val
 		self.oz.append(val)
 
-	def _on_new_attr_val(self, key, val):
-		self.add_output(key, val)
-
 
 class BlockOutsKwargs(BlockOutsBase):
+	_you_were_warned = False  # TODO Use DesignViolation implementation instead
+
 	def __init__(self, **kwargs):
 		self.o = kwargs
-		if sys.version_info[0] < 3 or (sys.version_info[0] == 3 and sys.version_info[1] < 6):
+		if not BlockOutsKwargs._you_were_warned and (
+						sys.version_info[0] < 3 or (sys.version_info[0] == 3 and sys.version_info[1] < 6)):
 			print('WARNING: keyword arguments constructor will not preserve output order before Python 3.6!\n' +
 				  'Please use the empty constructor approach provided for backward compatibility:\n' +
 				  'Eg: ' + type(self).__name__ + '().a(a_val).b(b_val)')
@@ -95,21 +71,49 @@ class BlockOutsAttrs(BlockOutsBase):
 		self.oz = []
 
 
-Out = AttrFactory(BlockOutsAttrs) if sys.version_info[0] < 3 or (
+class DictAttrBuilderFactory(object):
+	def __init__(self, attr_builder_class):
+		self.cls = attr_builder_class
+
+	def __getattr__(self, item):
+		if item == 'cls':
+			return self.cls
+		return self.cls().__getattr__(item)
+
+
+Out = DictAttrBuilderFactory(BlockOutsAttrs) if sys.version_info[0] < 3 or (
 	sys.version_info[0] == 3 and sys.version_info[1] < 6) else BlockOutsKwargs
 
+Props = DictAttrs  # Don't need DictAttrBuilderFactory since prop order does not need to be maintained
 
+
+# TODO Add tests for dynamic arg concept
 def dynamic(*args):
 	if len(args) == 1:
-		args[0].__is_d_inp = True
+		args[0].is_d_inp = True
 		return args[0]
 	for arg in args:
-		arg.__is_d_inp = True
+		arg.is_d_inp = True
 	return args
 
 
 def is_dynamic_arg(arg):
-	return hasattr(arg, '__is_d_inp') or (isinstance(arg, tf.Tensor) and arg.op.type == 'Placeholder')
+	return hasattr(arg, 'is_d_inp') or (isinstance(arg, tf.Tensor) and arg.op.type == 'Placeholder')
+
+
+class OptionalDynamicArg(object):
+	__slots__ = 'default_arg'
+	is_d_inp = True
+
+	def __init__(self, default_arg=None):
+		self.default_arg = default_arg
+
+	def resolve(self, *args, **kwargs):
+		return self.default_arg
+
+
+def resolve(arg: OptionalDynamicArg, *args, **kwargs):
+	return arg.resolve(*args, **kwargs) if isinstance(arg, OptionalDynamicArg) else arg
 
 
 def soft_assign(self, *args):
@@ -136,8 +140,8 @@ def flattened_dynamic_arguments(inps: dict) -> list:
 	for key in inps:
 		inp = inps[key]
 		if is_dynamic_arg(inp):
-			result.append(inp)
-		elif isinstance(inp, Block):
+			result.append(inp.default_arg if isinstance(inp, OptionalDynamicArg) else inp)
+		elif isinstance(inp, BlockBase):  # Do subclasses also evaluate to True?
 			result.extend(inp.di)
 	return result
 
@@ -175,57 +179,48 @@ class UninitializedScope(Scope):
 							 'Alternatively, manually setup the scope with self.setup_scope(scope_name)')
 
 
-class Block(object):
-	default_scope_name = None
+class BlockBase(object):
 	scope = UninitializedScope()
+	default_scope_name = None
+	props = None
 
-	def __init__(self, *args, **kwargs):
-		if isinstance(self.scope, UninitializedScope):
-			self.scope = Scope(self, kwargs.pop('scope_name', self.default_scope_name))
-		self.o, self.oz, self.i, self.iz = None, None, None, None
-		self.di = []
+	def __init__(self, **props):
+		self.i = self.o = self.iz = self.oz = self.di = self.built_fn = self.scope = None
+		props = Props(**props)
+		if self.props:
+			props.__dict__.update(self.props.__dict__)
+		self.props = props
+		dic = props.__dict__
+		self.scope = Scope(self, dic.get('scope_name', None))
+		# TODO Test name collision when explicitly specified names for two blocks are the same, and the lack thereof
+		if dic.get('make_scope_unique', True):
+			graph = dic.get('graph', tf.get_default_graph())
+			assert graph is not None, 'Could not find a default graph, so a graph must be provided since make_scope_unique is True'
+			self.scope.make_unique(graph)
+
+	def __call__(self, *args, **kwargs):
+		self.i, self.iz, self.di = self._bind(*args, **kwargs)
 		self._build(*args, **kwargs)
-		self.built_fn = None
-		super(Block, self).__init__()
+		return self
 
+	def is_dynamic(self):
+		return self.built_fn is None or any(b.is_dynamic() for b in self.iz if isinstance(b, BlockBase))
+
+	# TODO Add test case
 	def setup_scope(self, scope_name):
 		self.scope = Scope(self, scope_name)
 
-	def eval(self, *args, **kwargs):
-		raise NotImplementedError
-
-	def process_inputs(self, *args, **kwargs):
-		pass
-
-	def run(self, *args, **kwargs):
-		self.process_inputs(*args, **kwargs)
-		dynamic_oz = self.eval(*args, **kwargs) if self.is_dynamic() else self.built_fn(*args, **kwargs)
-		self.process_outputs(dynamic_oz)
-		return dynamic_oz
-
-	def process_outputs(self, outputs):
-		for inp in self.iz:
-			if isinstance(inp, Block):
-				inp.process_outputs(outputs)
-		self.process_my_outputs(outputs)
-
-	def process_my_outputs(self, outputs):
-		pass
-
-	def is_dynamic(self):
-		return self.built_fn is None or any(b.is_dynamic() for b in self.iz if isinstance(b, Block))
-
-	def build(self, *args, **kwargs):
-		raise NotImplementedError
+	def _bind(self, *args, **kwargs):
+		bound_i = util.FlatArgumentsBinder(self.build)(*args, **kwargs)
+		i = DictAttrs(**bound_i)
+		iz = list(bound_i.values())
+		di = flattened_dynamic_arguments(bound_i)
+		return i, iz, di
 
 	def _build(self, *args, **kwargs):
-		i = FlatBoundArguments(self.build)(*args, **kwargs)
-		self.i = DictAttrs(i)
-		self.iz = list(i.values())
-		self.di.extend(flattened_dynamic_arguments(i))
-
+		if len(self.get_all_ops()) > 0:
+			print('WARNING: Building ops into pollute d name scope')  # TODO Implement DesignViolation here
 		with tf.variable_scope(self.scope.rel):
-			print('building in scope %s' % self.scope.rel)
 			ret = self.build(*args, **kwargs)
 
 		if isinstance(ret, Out.cls):
@@ -242,30 +237,106 @@ class Block(object):
 
 		return ret
 
-
-# TODO Support passing session and name_scope as kwarg
-class TFBlock(Block):
 	def build(self, *args, **kwargs):
 		raise NotImplementedError
 
+	def run(self, *args, **kwargs):
+		self.process_inputs(*args, **kwargs)
+		dynamic_oz = self.eval(*args, **kwargs)
+		self.post_eval(dynamic_oz)
+		return dynamic_oz
+
+	def process_inputs(self, *args, **kwargs):
+		pass
+
+	def eval(self, *args, **kwargs):
+		raise NotImplementedError
+
+	def post_eval(self, outputs):
+		for inp in self.iz:
+			if isinstance(inp, BlockBase):
+				inp.post_eval(outputs)
+		self.post_my_eval(outputs)
+
+	# TODO Fix this disgusting design :(
+	def post_my_eval(self, outputs):
+		pass
+
+	def get_all_ops(self) -> list:
+		raise NotImplementedError
+
+	def get_variables(self):
+		raise NotImplementedError
+
+	def assign_vars(self, source_block: 'BlockBase'):
+		raise NotImplementedError
+
+	def get_trainable_variables(self):
+		raise NotImplementedError
+
+	def assign_trainable_vars(self, source_block: 'BlockBase'):
+		raise NotImplementedError
+
+
+# TODO Shift all Tensorflow logic to TF subclass
+class Function(BlockBase):
 	def __init__(self, *args, **kwargs):
-		sess = kwargs.pop('session', None)
-		assert sess is None or isinstance(sess, tf.Session), 'Specified session must be of type tf.Session'
-		super(TFBlock, self).__init__(*args, **kwargs)
+		super(Function, self).__init__(**kwargs)
+
+	# self.__call__(*args, **kwargs)
+
+	def get_all_ops(self) -> list:
+		raise NotImplementedError
+
+	def get_variables(self):
+		raise NotImplementedError
+
+	def assign_vars(self, source_block: BlockBase):
+		raise NotImplementedError
+
+	def get_trainable_variables(self):
+		raise NotImplementedError
+
+	def assign_trainable_vars(self, source_block: BlockBase):
+		raise NotImplementedError
+
+
+class TFFunction(Function):
+	def __init__(self, *args, **kwargs):
 		self.givens = {}
 		self.options = None
 		self.run_metadata = None
-		self.built_fn = util.function(self.di, self.oz, session=sess)
+		self.built_fn = None
+		super(TFFunction, self).__init__(*args, **kwargs)
+		sess = self.props.__dict__.get('session', None)
+		assert sess is None or isinstance(sess, tf.Session), 'Specified session must be of type tf.Session'
+		self.props.__dict__['session'] = sess
+		self.props.session = sess
+
+	def __call__(self, *args, **kwargs):
+		super(TFFunction, self).__call__(*args, **kwargs)
+		self.built_fn = util.function(self.di, self.oz, session=self.props.session)
+		return self
+
+	def build(self, *args, **kwargs):
+		raise NotImplementedError
 
 	def set_session(self, session: tf.Session):
-		self.built_fn.sess = session
+		self.props.session = session
+		if self.built_fn is not None:
+			self.built_fn.set_session(session)
 
 	@property
 	def sess(self):
-		return self.built_fn.sess if self.built_fn.sess is not None else U.get_session()
+		if self.built_fn is not None:
+			return self.built_fn.sess
+		elif self.props.session is not None:
+			return self.props.session
+		else:
+			return U.get_session()
 
 	def process_inputs(self, *args, **kwargs):
-		super(TFBlock, self).process_inputs(*args, **kwargs)
+		super(TFFunction, self).process_inputs(*args, **kwargs)
 		if not self.is_dynamic():
 			self.built_fn.givens = self.get_all_givens()
 			self.built_fn.using(self.options, self.run_metadata)
@@ -273,7 +344,7 @@ class TFBlock(Block):
 	def get_all_givens(self) -> dict:
 		givens = {}
 		for inp in self.iz:
-			if isinstance(inp, TFBlock):
+			if isinstance(inp, TFFunction):
 				child_givens = inp.get_all_givens()
 				givens.update(child_givens)
 		my_givens = self.get_my_givens()
@@ -289,10 +360,38 @@ class TFBlock(Block):
 		return self
 
 	def eval(self, *args, **kwargs):
-		pass
+		return self.built_fn(*args, **kwargs)
+
+	def get_all_ops(self) -> list:
+		all_ops = set()
+		for key in TFGraphKeys:
+			collect = tf.get_collection(key, self.scope.exact_abs_pattern)
+			if len(collect) > 0:
+				list(map(all_ops.add, collect))  # TODO Add coverage for this line
+		return list(all_ops)
+
+	# TODO Add test case
+	def get_variables(self):
+		return tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.scope.exact_abs_pattern)
+
+	# TODO Add test case
+	def assign_vars(self, source_block: 'TFFunction'):
+		weight_update = [tf.assign(new, old) for (new, old) in zipsame(self.get_variables(),
+																	   source_block.get_variables())]
+		return weight_update
+
+	# TODO Add test case
+	def get_trainable_variables(self):
+		return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.scope.exact_abs_pattern)
+
+	# TODO Add test case
+	def assign_trainable_vars(self, source_block: 'TFFunction'):
+		weight_update = [tf.assign(new, old) for (new, old) in zipsame(self.get_trainable_variables(),
+																	   source_block.get_trainable_variables())]
+		return weight_update
 
 
-class StateShape(object):
+class StateManager(object):
 	def __init__(self, shape):
 		self._shape = shape
 
@@ -316,113 +415,120 @@ class StateShape(object):
 		return tf.assign(dest_state, src_state)
 
 
-class StatefulTFBlock(TFBlock):
-	STATE = None  # type: StateShape
+class StatefulTFFunction(TFFunction):
+	state_manager = None  # type: StateManager
 
 	def __init__(self, *args, **kwargs):
-		self.prev_state = self.next_state = self.state_index = self.state = None
-		super(StatefulTFBlock, self).__init__(*args, **kwargs)
+		self.prev_state = self.next_state = self.dynamic_state_index = self.state = None
+		super(StatefulTFFunction, self).__init__(*args, **kwargs)
 
 	def _build(self, *args, **kwargs):
-		super(StatefulTFBlock, self)._build(*args, **kwargs)
-		tuple_state = self.o.state
-		if isinstance(tuple_state, tuple):
-			self.prev_state, self.next_state = self.o.state
-			if not is_dynamic_arg(self.prev_state):
+		super(StatefulTFFunction, self)._build(*args, **kwargs)
+		# TODO any output which is a tuple should be inferred as stateful
+		state = self.o.state
+		oz_index = self.oz.index(state)
+		if isinstance(state, tuple):
+			self.prev_state, self.state_manager, self.next_state = state
+			if is_dynamic_arg(self.prev_state):
+				next_state = self.next_state
+				self.dynamic_state_index = oz_index
+			else:
 				dependencies = [self.o[key] for key in self.o if key != 'state']
 				with tf.control_dependencies(dependencies):
-					updated_state = self.STATE.assign(self.prev_state, self.next_state)
-			else:
-				updated_state = self.next_state
-			self.o.state = updated_state
-			oz_index = self.oz.index(tuple_state)
-			self.oz[oz_index] = self.o.state
-			if is_dynamic_arg(self.prev_state):
-				self.state_index = oz_index
+					next_state = self.state_manager.assign(self.prev_state, self.next_state)
+
+			self.o.state = next_state
+			self.oz[oz_index] = next_state
 
 	def build(self, *args, **kwargs):
 		raise NotImplementedError
 
 	def get_my_givens(self):
-		givens = super(StatefulTFBlock, self).get_my_givens()
+		binds = super(StatefulTFFunction, self).get_my_givens()
 		if is_dynamic_arg(self.prev_state):
-			givens.update({self.prev_state: self.state})
-		return givens
+			binds[self.prev_state] = self.state
+		return binds
 
-	def process_my_outputs(self, outputs):
-		super(StatefulTFBlock, self).process_my_outputs(outputs)
-		if self.state_index is not None:
-			self.state = outputs[self.state_index]
+	def post_my_eval(self, outputs):
+		super(StatefulTFFunction, self).post_my_eval(outputs)
+		if self.dynamic_state_index is not None:
+			self.state = outputs[self.dynamic_state_index]
 
 
-def cast_to_stateful_tf_block(ob) -> StatefulTFBlock:
+def cast_to_stateful_tf_block(ob) -> StatefulTFFunction:
 	return ob
 
 
-def get_class_for_block_fn(fn, base_cls):
+def get_class_for_block_fn(fn, base_cls, default_props: Props = None):
 	class BlockFn(base_cls):
 		build = fn
+		props = default_props
 
 		default_scope_name = fn.__name__
 
 		def __init__(self, *args, **kwargs):
 			self.build = fn
-			super(BlockFn, self).__init__(*args, **kwargs)
-
-		def eval(self, *args, **kwargs):
-			raise NotImplementedError
+			props = kwargs.pop('props', Props())
+			super(BlockFn, self).__init__(**props.__dict__)
+			self.__call__(*args, **kwargs)
 
 	return BlockFn
 
 
 class Decorators(object):
 	@staticmethod
-	def block_decorator(fn) -> Type[Block]:
-		return get_class_for_block_fn(fn, Block)
+	def function_decorator(fn) -> Type[Function]:
+		return get_class_for_block_fn(fn, Function)
 
 	@staticmethod
-	def block_meta_decorator(cls: Type[Any]) -> '(fn: Any) -> Type[Block]':
-		def block_decorator(fn) -> Type[Block]:
-			return get_class_for_block_fn(fn, cls)
+	def function_meta_decorator(cls: Type[Any], default_props: Props = None) -> '(fn: Any) -> Type[Function]':
+		def block_decorator(fn) -> Type[Function]:
+			return get_class_for_block_fn(fn, cls, default_props)
 
 		return block_decorator
 
 	@staticmethod
-	def tf_block_decorator(fn) -> Type[TFBlock]:
-		return get_class_for_block_fn(fn, TFBlock)
+	def tf_block_decorator(fn) -> Type[TFFunction]:
+		return get_class_for_block_fn(fn, TFFunction)
 
 	@staticmethod
-	def tf_block_meta_decorator(cls: Type[Any]) -> '(fn: Any) -> Type[TFBlock]':
-		def tf_block_decorator(fn) -> Type[TFBlock]:
-			return get_class_for_block_fn(fn, cls)
+	def tf_block_meta_decorator(cls: Type[Any] = None, default_props: Props = None) -> '(fn: Any) -> Type[TFFunction]':
+		def tf_block_decorator(fn) -> Type[TFFunction]:
+			return get_class_for_block_fn(fn, cls, default_props)
 
 		return tf_block_decorator
 
 
-def block(cls) -> Type[Block]:
+# noinspection PyShadowingBuiltins
+def function(cls=Function) -> Type[Function]:
 	is_meta_decorator = not inspect.isfunction(cls)
-	return Decorators.block_meta_decorator(cls) if is_meta_decorator else Decorators.block_decorator(cls)
+	return Decorators.function_meta_decorator(cls) if is_meta_decorator else Decorators.function_decorator(cls)
 
 
-def tf_block(tf_block_cls) -> Type[TFBlock]:
-	is_meta_decorator = not inspect.isfunction(tf_block_cls)
-	return Decorators.tf_block_meta_decorator(tf_block_cls) if is_meta_decorator else Decorators.tf_block_decorator(
-		tf_block_cls)
+def tf_function(tf_function_cls=TFFunction, default_props: Props = None) -> Type[TFFunction]:
+	is_meta_decorator = not inspect.isfunction(tf_function_cls)
+	return Decorators.tf_block_meta_decorator(tf_function_cls, default_props) if is_meta_decorator \
+		else Decorators.tf_block_decorator(tf_function_cls)
 
 
-def stateful_tf_block(state_shape, cls: Type[Any] = StatefulTFBlock) -> '(fn: Any) -> Type[StatefulTFBlock]':
-	assert isinstance(state_shape, StateShape)
-	assert issubclass(cls, StatefulTFBlock)
+def stateful_tf_function(default_state_type: StateManager,
+						 cls: Type[Any] = StatefulTFFunction,
+						 default_props: Props = None) -> '(fn: Any) -> Type[StatefulTFFunction]':
+	if default_state_type is not None:
+		assert isinstance(default_state_type, StateManager)
+	assert issubclass(cls, StatefulTFFunction)
 
-	def stateful_tf_block_decorator(fn) -> Type[StatefulTFBlock]:
+	def stateful_tf_block_decorator(fn) -> Type[StatefulTFFunction]:
 		class StatefulTFBlockFn(cls):
 			build = fn
 			default_scope_name = fn.__name__
-			STATE = state_shape
+			state_manager = default_state_type
+			props = default_props
 
 			def __init__(self, *args, **kwargs):
 				self.build = fn
 				super(StatefulTFBlockFn, self).__init__(*args, **kwargs)
+				self.__call__(*args, **kwargs)
 
 		# noinspection PyTypeChecker
 		return StatefulTFBlockFn
@@ -525,15 +631,15 @@ class Outs(InpOut):
 
 
 class TFSubGraph(TFObject):
-	# TODO Add basic TFFunction-ality here and have it extend this
+	# TODO Add basic PythonicTFFunction-ality here and have it extend this
 	pass
 
 
-class TFFunction(TFObject):
+class PythonicTFFunction(TFObject):
 	def __init__(self, name: str, func, override_inputs, *args, **kwargs):
 		if name is None:
 			name = func.__name__
-		super(TFFunction, self).__init__(name)
+		super(PythonicTFFunction, self).__init__(name)
 
 		with tf.variable_scope(self.scope.rel, reuse=None):
 			ret = func(*args, **kwargs)
@@ -541,7 +647,7 @@ class TFFunction(TFObject):
 				self.i, self.o = ret
 			else:
 				self.i, self.o = self.args_to_inputs(func, *args, **kwargs), ret
-		super(TFFunction, self).__init__(name, **kwargs)
+		super(PythonicTFFunction, self).__init__(name, **kwargs)
 
 	@staticmethod
 	def args_to_inputs(func, *args, **kwargs):
@@ -567,15 +673,15 @@ class TFFunction(TFObject):
 
 
 class MetaTFFunction(object):
-	def __new__(cls, func, scope_name: str = None, tf_func_class=TFFunction, override_inputs=False):
+	def __new__(cls, func, scope_name: str = None, tf_func_class=PythonicTFFunction, override_inputs=False):
 		def custom_fn(*args, **kwargs):
 			return tf_func_class(scope_name, func, override_inputs, *args, **kwargs)
 
 		return custom_fn
 
 
-def tf_function(scope_name: str = None, tf_func_class=TFFunction, override_inputs=False,
-				meta_tf_function=MetaTFFunction):
+def pythonic_tf_function(scope_name: str = None, tf_func_class=PythonicTFFunction, override_inputs=False,
+						 meta_tf_function=MetaTFFunction):
 	def tf_fn(func):
 		return meta_tf_function(func, scope_name, tf_func_class, override_inputs)
 
@@ -588,7 +694,7 @@ def tf_function(scope_name: str = None, tf_func_class=TFFunction, override_input
 # 	def tf_cls(cls):
 #
 
-class TFMethod(TFFunction):
+class TFMethod(PythonicTFFunction):
 	def __init__(self, name: str, obj: [object, TFObject], method, override_inputs, *args, **kwargs):
 		method_name = name if name is not None else method.__name__
 		object_name = obj.scope.rel if isinstance(obj, TFObject) else type(obj).__name__
