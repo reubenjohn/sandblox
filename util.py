@@ -487,7 +487,9 @@ class _Function(object):
 
 	@property
 	def sess(self):
-		return self._sess if self._sess is not None else get_session()
+		sess = self._sess if self._sess is not None else get_session()
+		assert sess is not None, 'No default session is registered'
+		return sess
 
 	def set_session(self, sess: tf.Session):
 		self._sess = sess
