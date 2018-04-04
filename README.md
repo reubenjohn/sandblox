@@ -44,6 +44,7 @@ Well, as soon as possible, we're looking for all the help we can get. Besides, i
 **Who**'s it for?
 ---
 In no particular order:
+
 Community     | Justification
 ---|---
 Research    | General Purpose, Expressive, Rapid, Reproducibility, Benchmarking, Backend Invariant
