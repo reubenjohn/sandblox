@@ -63,74 +63,92 @@ A block undergoes a well defined life cycle:
 
 Take for instance the creation of a weird block where we concatenate two arrays, add a bias and then pass it through a fully connected layer:
 
-    @sx.tf_function
-    def foo_block(x, y, bias=tf.constant(.1)):
-        concat = tf.concat([x, y], axis=0)
-        biased = concat + bias
-        return sx.Out.logits(tf.layers.dense(biased, 2)).bias(biased)
-        
+```python
+@sx.tf_function
+def foo_block(x, y, bias=tf.constant(.1)):
+    concat = tf.concat([x, y], axis=0)
+    biased = concat + bias
+    return sx.Out.logits(tf.layers.dense(biased, 2)).bias(biased)
+```
+
 By adding the `@sx.tf_function` decorator, the function is automagically turned into a block.
 This means that calling this function with parameters will create a new instance of the block.
 
-    block = foo_block(tf.Variable([[.4, .5]]), tf.placeholder(tf.float32, [None, 2]))
+```python
+block = foo_block(tf.Variable([[.4, .5]]), tf.placeholder(tf.float32, [None, 2]))
+```
 
 And this is where things get interesting.  
 Sandblox infers what arguments are required to be bound before evaluation.
 In this case, the second placeholder argument obviously needs to be provided a value for execution to occur.   
 Providing this value is as easy as passing it as an argument when running the block as shown below:  
 
-    with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
-        print(block.run([[.3, .3]])) # 2D logits array, and 2D biases array
+```python
+with tf.Session() as sess:
+    sess.run(tf.global_variables_initializer())
+    print(block.run([[.3, .3]])) # 2D logits array, and 2D biases array
+```
 
 The order of the arguments of the run function matches the order of dynamic binding arguments (in this case only 1 such argument).
 
 Further, the block provides convenient references to it's inputs and outputs. For instance you can evaluate just the outputs like:
 
-    print(sess.run(block.o.my_logits, feed_dict={block.i.y: [[.3, .3]]}) # 2D logits array
+```python
+print(sess.run(block.o.my_logits, feed_dict={block.i.y: [[.3, .3]]}) # 2D logits array
+```
 
 This means you can safely abstract away logic for creating tensors inside blocks and not loose references to them:
 
-    def foo_block(x=tf.Variable([[.4, .5]]), input2=tf.placeholder(tf.float32, [None, 2]), bias=tf.constant(.1))
-        ...
+```python
+def foo_block(x=tf.Variable([[.4, .5]]), input2=tf.placeholder(tf.float32, [None, 2]), bias=tf.constant(.1))
+    ...
+```
 
 You can even create blocks in their own name spaces:
 
-    block(tf.Variable([[.4, .5]]), ..., props=sx.Props(scope_name='block2'))
+```python
+block(tf.Variable([[.4, .5]]), ..., props=sx.Props(scope_name='block2'))
+```
 
 In case of tensorflow, this allows for better organization of your graph, avoiding collision of tensor names and better visualization in tensorboard.
 In case of tensorflow blocks, you can also explicitly specify props for overriding the session (`session=...`) or graph (`graph=...`) in which to perform the operations, or if you want to make the name scope unique by appending an increment (`make_scope_unique=True`).
 
 In cases where you want to separate the instantiation stage from the static graph building stage or if you want to access the props during the static evaluation, you can use class inheritance instead of the decorator:
 
-    class FooBlock(sx.TFFunction):
-	    def build(self, x, y, bias):
-            concat = tf.concat([x, y], axis=0)
-            biased = concat + bias
-            x = biased
-            for _ in range(self.props.num_layers)
-                x = tf.layers.dense(x, 2)
-            return sx.Out.logits(x).bias(biased)
-    block = FooBlock(num_layers=4)
-    ...
-    block(tf.Variable([[.4, .5]]), tf.placeholder(tf.float32, [None, 2]))
-    ...
+```python
+class FooBlock(sx.TFFunction):
+    def build(self, x, y, bias):
+        concat = tf.concat([x, y], axis=0)
+        biased = concat + bias
+        x = biased
+        for _ in range(self.props.num_layers)
+            x = tf.layers.dense(x, 2)
+        return sx.Out.logits(x).bias(biased)
+block = FooBlock(num_layers=4)
+...
+block(tf.Variable([[.4, .5]]), tf.placeholder(tf.float32, [None, 2]))
+...
+```
 
 This is especially useful if you want to perform some kind of custom initialization:
 
-    class FooBlock(sx.TFFunction):
-        def __init__(self, **props):
-            ...
-        def build(self, ...):
-            ...
+```python
+class FooBlock(sx.TFFunction):
+    def __init__(self, **props):
+        ...
+    def build(self, ...):
+        ...
+```
 	    
 Classes also allow you to provide custom dynamic evaluation, allowing you to utilize dynamic compute based libraries such as PyTorch:
 
-    class FooBlock(sx.TFFunction):
-        ...
-        def eval(*args, **kwargs):
-            result = super(FooBlock, self).eval(*args, **kwargs)
-            return result * 2 if result < .5 else resultl
+```python
+class FooBlock(sx.TFFunction):
+    ...
+    def eval(*args, **kwargs):
+        result = super(FooBlock, self).eval(*args, **kwargs)
+        return result * 2 if result < .5 else resultl
+```
 
 Thus by following this well defined design, a lot of things can be provided out-of-the-box, so that you can focus on what's inside the block instead of what's outside block.
  
@@ -140,37 +158,37 @@ Since a block has both a static and dynamic stage, it supports both static and d
 Imagine blocks that use hierarchies and chaining together!
 For example, a layer that sequentially applies blocks:
 
-    result = MySequentialBlock(
-        tf.placeholder(...),
-        ConvBlock(kernel_size=3),
-        DenseBlock(size=5)
-    )
-    result.run(...)
+```python
+result = MySequentialBlock(
+    tf.placeholder(...),
+    ConvBlock(kernel_size=3),
+    DenseBlock(size=5)
+)
+result.run(...)
+```
 
 Imagine building your entire model in an extremely concise, modular and composable fashion:
 
-
-
-
-
-    model = Foo(
-        Octo(
-            Cat(                          ^---^
-                With(...),          <{||=- @ @ -=||}>
-                Dragon(...),              ).-.(
-                Wings(...),              '/|||\`
-            ),                             '|`  
-            LOL(...),
-        ),
-        Octo(
-            Cat(
-                Without(...),
-                Dragon(...),
-                Wings(...)
-            )
-        ),
-        ...
-    )
+```
+model = Foo(
+    Octo(
+        Cat(                          ^---^
+            With(...),          <{||=- @ @ -=||}>
+            Dragon(...),              ).-.(
+            Wings(...),              '/|||\`
+        ),                             '|`  
+        LOL(...),
+    ),
+    Octo(
+        Cat(
+            Without(...),
+            Dragon(...),
+            Wings(...)
+        )
+    ),
+    ...
+)
+```
 
 
 **Where** does it apply?
