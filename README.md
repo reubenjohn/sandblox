@@ -1,5 +1,7 @@
-SandB|ox
+![SandB|ox](https://image.ibb.co/bRbfGc/SandBlox.png)
 ===
+***Disclaimer**: Sandblox is a work in progress, and so, we describe not only what SandBlox is currently capable of, but also some of it's eventual objectives.*
+
 **What** is it?
 ---  
 A software technology framework, library, platform and movement for Machine Learning.  
