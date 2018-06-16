@@ -217,10 +217,10 @@ class BlockBase(object):
 		self.scope = Scope(self, scope_name)
 
 	def _bind(self, *args, **kwargs):
-		bound_i = util.FlatArgumentsBinder(self.build)(*args, **kwargs)
-		i = DictAttrs(**bound_i)
-		iz = list(bound_i.values())
-		di = flattened_dynamic_arguments(bound_i)
+		input_args = util.FlatArgumentsBinder(self.build)(*args, **kwargs)
+		i = DictAttrs(**input_args)
+		iz = list(input_args.values())
+		di = flattened_dynamic_arguments(input_args)
 		return i, iz, di
 
 	def _build(self, *args, **kwargs):
