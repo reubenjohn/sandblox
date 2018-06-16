@@ -25,6 +25,10 @@ class DictAttrs(object):
 	def __getitem__(self, item):
 		return self.__dict__.__getitem__(item)
 
+	# To prevent unhelpful lint warnings
+	def __getattr__(self, item):
+		pass
+
 	def __setitem__(self, key, value):
 		self.__dict__.__setitem__(key, value)
 
@@ -179,9 +183,10 @@ class UninitializedScope(Scope):
 							 'Alternatively, manually setup the scope with self.setup_scope(scope_name)')
 
 
+# TODO Support forwarding of arguments to variable_scope
 class BlockBase(object):
 	scope = UninitializedScope()
-	default_scope_name = None
+	default_scope_name = None  # Assign non-None to specify custom default scope name rather than default behaviour of inferring it
 	props = None
 
 	def __init__(self, **props):
@@ -191,7 +196,8 @@ class BlockBase(object):
 			props.__dict__.update(self.props.__dict__)
 		self.props = props
 		dic = props.__dict__
-		self.scope = Scope(self, dic.get('scope_name', None))
+		self.scope = Scope(self, dic.get('scope_name', self.default_scope_name))
+		self.reuse_var_scope = dic.get('reuse', None)
 		# TODO Test name collision when explicitly specified names for two blocks are the same, and the lack thereof
 		if dic.get('make_scope_unique', True):
 			graph = dic.get('graph', tf.get_default_graph())
@@ -220,7 +226,7 @@ class BlockBase(object):
 	def _build(self, *args, **kwargs):
 		if len(self.get_all_ops()) > 0:
 			print('WARNING: Building ops into pollute d name scope')  # TODO Implement DesignViolation here
-		with tf.variable_scope(self.scope.rel):
+		with tf.variable_scope(self.scope.rel, reuse=self.reuse_var_scope):
 			ret = self.build(*args, **kwargs)
 
 		if isinstance(ret, Out.cls):
@@ -411,6 +417,7 @@ class StateManager(object):
 	def new_variable(self, batch_size: [int, list] = 1):
 		return tf.Variable(self.new(batch_size), name='state')
 
+	# TODO Investigate implications of making this static
 	def assign(self, dest_state, src_state):
 		return tf.assign(dest_state, src_state)
 
