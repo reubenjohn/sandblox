@@ -1,8 +1,10 @@
 import time
-from typing import List
+from typing import List, Type
 from unittest import TestCase
 
-from sandblox import *
+import tensorflow as tf
+
+import sandblox as sx
 
 
 class FooLogic(object):
@@ -42,18 +44,18 @@ class FooLogic(object):
 		return res
 
 
-@tf_function
+@sx.tf_function
 def foo(x, y, param_with_default=-5, **kwargs):
 	# noinspection PyTypeChecker
 	b, a = FooLogic.call(x, y, param_with_default, **kwargs)
 
-	if Out == BlockOutsKwargs:
-		return Out(b=b, a=a)
+	if sx.Out == sx.BlockOutsKwargs:
+		return sx.Out(b=b, a=a)
 	else:
-		return Out.b(b).a(a)
+		return sx.Out.b(b).a(a)
 
 
-@tf_function
+@sx.tf_function
 def bad_foo(x, y, param_with_default=-5, **kwargs):
 	# noinspection PyTypeChecker
 	b, a = FooLogic.call(x, y, param_with_default, **kwargs)
@@ -61,20 +63,20 @@ def bad_foo(x, y, param_with_default=-5, **kwargs):
 
 
 # noinspection PyClassHasNoInit
-class Foo(TFFunction):
+class Foo(sx.TFFunction):
 	def build(self, x, y, param_with_default=-5, **kwargs):
 		# noinspection PyTypeChecker
 		b, a = FooLogic.call(x, y, param_with_default, **kwargs)
 
 		# TODO Test both cases for python 3.6+
-		if Out == BlockOutsKwargs:
-			return Out(b=b, a=a)
+		if sx.Out == sx.BlockOutsKwargs:
+			return sx.Out(b=b, a=a)
 		else:
-			return Out.b(b).a(a)
+			return sx.Out.b(b).a(a)
 
 
 # noinspection PyClassHasNoInit
-class BadFoo(TFFunction):
+class BadFoo(sx.TFFunction):
 	def build(self, x, y, param_with_default=-5, **kwargs):
 		# noinspection PyTypeChecker
 		b, a = FooLogic.call(x, y, param_with_default, **kwargs)
@@ -98,14 +100,14 @@ class Suppress1(object):
 	# Wrapped classes don't get tested themselves
 	# noinspection PyCallByClass
 	class TestBlockBase(TestCase):
-		target = None  # type: Type[TFFunction]
-		bad_target = None  # type: Type[TFFunction]
-		block_foo_ob = None  # type: TFFunction
+		target = None  # type: Type[sx.TFFunction]
+		bad_target = None  # type: Type[sx.TFFunction]
+		block_foo_ob = None  # type: sx.TFFunction
 
-		def create_block_ob(self, **props) -> TFFunction:
+		def create_block_ob(self, **props) -> sx.TFFunction:
 			raise NotImplementedError
 
-		def create_bad_block_ob(self, **props) -> TFFunction:
+		def create_bad_block_ob(self, **props) -> sx.TFFunction:
 			raise NotImplementedError
 
 		ELAPSE_LIMIT = 25000  # usec To accommodate slowness during debugging
@@ -114,7 +116,7 @@ class Suppress1(object):
 		def __init__(self, method_name: str = 'runTest'):
 			super(Suppress1.TestBlockBase, self).__init__(method_name)
 			with tf.variable_scope(self.block_foo_ob.scope.rel, reuse=True):
-				self.bound_flattened_logic_args = FooLogic.args_call(U.FlatArgumentsBinder(FooLogic.call))
+				self.bound_flattened_logic_args = FooLogic.args_call(sx.U.FlatArgumentsBinder(FooLogic.call))
 				self.logic_outs = list(FooLogic.args_call(FooLogic.call))
 
 			self.options = tf.RunOptions()
@@ -211,11 +213,11 @@ class TestBlockFunction(Suppress1.TestBlockBase):
 	bad_target = bad_foo
 	block_foo_ob = FooLogic.args_call(target)
 
-	def create_block_ob(self, **props) -> BlockBase:
-		return FooLogic.args_call(TestBlockFunction.target, props=Props(**props))
+	def create_block_ob(self, **props) -> sx.BlockBase:
+		return FooLogic.args_call(TestBlockFunction.target, props=sx.Props(**props))
 
-	def create_bad_block_ob(self, **props) -> BlockBase:
-		return FooLogic.args_call(TestBlockFunction.bad_target, props=Props(**props))
+	def create_bad_block_ob(self, **props) -> sx.BlockBase:
+		return FooLogic.args_call(TestBlockFunction.bad_target, props=sx.Props(**props))
 
 	def __init__(self, method_name: str = 'runTest'):
 		super(TestBlockFunction, self).__init__(method_name)
@@ -226,11 +228,11 @@ class TestBlockClass(Suppress1.TestBlockBase):
 	bad_target = BadFoo()
 	block_foo_ob = FooLogic.args_call(target)
 
-	def create_block_ob(self, **props) -> BlockBase:
-		return FooLogic.args_call(TestBlockClass.target, props=Props(**props))
+	def create_block_ob(self, **props) -> sx.BlockBase:
+		return FooLogic.args_call(TestBlockClass.target, props=sx.Props(**props))
 
-	def create_bad_block_ob(self, **props) -> BlockBase:
-		return FooLogic.args_call(TestBlockClass.bad_target, props=Props(**props))
+	def create_bad_block_ob(self, **props) -> sx.BlockBase:
+		return FooLogic.args_call(TestBlockClass.bad_target, props=sx.Props(**props))
 
 
 # noinspection PyCallByClass

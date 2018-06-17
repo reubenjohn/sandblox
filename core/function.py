@@ -5,7 +5,7 @@ import tensorflow as tf
 
 from sandblox.core.block import BlockBase
 from sandblox.util import tf_util as U
-from sandblox.util.util import *
+from sandblox.util.misc import *
 
 
 # TODO Shift all Tensorflow logic to TF subclass
@@ -134,17 +134,18 @@ class TFFunction(Function):
 		return weight_update
 
 
-def to_sandblox_function(fn, base_cls: Type[Function], default_props: Props = None):
+def to_sandblox_function(fn, base_cls: Type[Function], def_props: Props = None):
+	# noinspection PyAbstractClass
 	class BlockFn(base_cls):
 		def __init__(self, **default_props):
 			self.build = fn
 			super(BlockFn, self).__init__(**default_props)
 
-	if default_props is None:
-		default_props = Props()
-	if default_props.scope_name is None:
-		default_props.scope_name = fn.__name__
-	block_fn_instance = BlockFn(**default_props.__dict__)  # type: Type[Function]
+	if def_props is None:
+		def_props = Props()
+	if def_props.scope_name is None:
+		def_props.scope_name = fn.__name__
+	block_fn_instance = BlockFn(**def_props.__dict__)  # type: Type[Function]
 
 	return block_fn_instance
 

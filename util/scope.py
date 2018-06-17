@@ -1,3 +1,5 @@
+import tensorflow as tf
+
 from .tf_util import scope_name as get_scope_name
 
 

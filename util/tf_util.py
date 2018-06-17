@@ -1,4 +1,3 @@
-import builtins
 import collections
 import copy
 import functools
@@ -554,6 +553,7 @@ class _MemFriendlyFunction(object):
 		n = data_vals[0].shape[0]
 		for v in data_vals[1:]:
 			assert v.shape[0] == n
+		import builtins
 		for i_start in range(0, n, self.batch_size):
 			slice_vals = [v[i_start:builtins.min(i_start + self.batch_size, n)] for v in data_vals]
 			for (var, val) in zip(self.data_inputs, slice_vals):
