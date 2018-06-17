@@ -751,6 +751,9 @@ def fancy_slice_2d(X, inds0, inds1):
 # Scopes
 # ================================================================
 
+TFGraphKeys = [val for key, val in zip(tf.GraphKeys.__dict__.keys(), tf.GraphKeys.__dict__.values()) if
+			   isinstance(val, str) and '__' not in key]
+
 
 def scope_vars(scope, trainable_only=False):
 	"""

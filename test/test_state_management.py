@@ -27,8 +27,8 @@ class Suppress2(object):
 				agent_result = self.agnt.run(0, [[.1, .2]])
 				selections = agent_result[0]
 				self.assertTrue(
-					isinstance(selections, numpy.ndarray) and
-					selections.dtype == numpy.int32 and selections.shape == (1, 2)
+					isinstance(selections, np.ndarray) and
+					selections.dtype == np.int32 and selections.shape == (1, 2)
 				)
 				self.assertEqual(agent_result[1].shape, (1, 4))
 
@@ -95,7 +95,7 @@ class TestPlaceholderStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
 			self.assertEqual(agent_result[1].shape, (1, 4))
 			# State should be updated: Small possibility of a false failure here
 			self.assertTrue(
-				not numpy.alltrue(numpy.equal(self.agnt.state, old_state)))
+				not np.alltrue(np.equal(self.agnt.state, old_state)))
 
 
 class TestVariableStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
@@ -124,7 +124,7 @@ class TestPlaceholderDefaultStateManagerHierarchicalBlock(Suppress2.TestHierarch
 			self.assertEqual(agent_result[1].shape, (1, 4))
 			# State should be updated: Small possibility of a false failure here
 			self.assertTrue(
-				not numpy.alltrue(numpy.equal(self.agnt.state, old_state)))
+				not np.alltrue(np.equal(self.agnt.state, old_state)))
 
 
 class TestVariableDefaultStateManagerHierarchicalBlock(Suppress2.TestHierarchicalBase):

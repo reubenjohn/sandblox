@@ -3,7 +3,6 @@ from typing import List
 from unittest import TestCase
 
 from sandblox import *
-from sandblox import Out
 
 
 class FooLogic(object):
@@ -84,14 +83,14 @@ class BadFoo(TFFunction):
 
 
 class FooWithProps(Foo):
-	def __init__(self, *args, **kwargs):
-		super(Foo, self).__init__(*args, **kwargs)
+	def __init__(self, **default_props):
+		super(Foo, self).__init__(**default_props)
 		assert self.props.my_prop == 0
 
 
 class BadFooWithProps(BadFoo):
-	def __init__(self, *args, **kwargs):
-		super(BadFoo, self).__init__(*args, **kwargs)
+	def __init__(self, **default_props):
+		super(BadFoo, self).__init__(**default_props)
 		assert self.props.my_prop == 0
 
 
