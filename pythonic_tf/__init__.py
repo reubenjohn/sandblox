@@ -3,7 +3,7 @@ import inspect
 import tensorflow as tf
 
 from sandblox.util import tf_util as U
-from sandblox.util.scope import UninitializedScope
+from sandblox.util.scope import *
 
 
 class TFObject(object):

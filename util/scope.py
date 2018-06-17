@@ -1,9 +1,9 @@
-from .tf_util import scope_name
+from .tf_util import scope_name as get_scope_name
 
 
 def absolute_scope_name(relative_scope_name):
 	"""Appends parent scope name to `relative_scope_name`"""
-	base = scope_name()
+	base = get_scope_name()
 	base = base + "/" if len(base) > 0 else base
 	return base + relative_scope_name
 
