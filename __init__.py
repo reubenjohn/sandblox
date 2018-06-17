@@ -186,7 +186,6 @@ class UninitializedScope(Scope):
 # TODO Support forwarding of arguments to variable_scope
 class BlockBase(object):
 	scope = UninitializedScope()
-	default_scope_name = None  # Assign non-None to specify custom default scope name rather than default behaviour of inferring it
 	props = None
 
 	def __init__(self, **props):
@@ -196,7 +195,7 @@ class BlockBase(object):
 			props.__dict__.update(self.props.__dict__)
 		self.props = props
 		dic = props.__dict__
-		self.scope = Scope(self, dic.get('scope_name', self.default_scope_name))
+		self.scope = Scope(self, dic.get('scope_name'))
 		self.reuse_var_scope = dic.get('reuse', None)
 		# TODO Test name collision when explicitly specified names for two blocks are the same, and the lack thereof
 		if dic.get('make_scope_unique', True):
@@ -471,11 +470,11 @@ def get_class_for_block_fn(fn, base_cls, default_props: Props = None):
 		build = fn
 		props = default_props
 
-		default_scope_name = fn.__name__
-
 		def __init__(self, *args, **kwargs):
 			self.build = fn
 			props = kwargs.pop('props', Props())
+			if props.scope_name is None:
+				props.scope_name = fn.__name__
 			super(BlockFn, self).__init__(**props.__dict__)
 			self.__call__(*args, **kwargs)
 
@@ -528,13 +527,14 @@ def stateful_tf_function(default_state_type: StateManager,
 	def stateful_tf_block_decorator(fn) -> Type[StatefulTFFunction]:
 		class StatefulTFBlockFn(cls):
 			build = fn
-			default_scope_name = fn.__name__
 			state_manager = default_state_type
 			props = default_props
 
 			def __init__(self, *args, **kwargs):
 				self.build = fn
-				super(StatefulTFBlockFn, self).__init__(*args, **kwargs)
+				updated_kwargs = {'scope_name': fn.__name__}
+				updated_kwargs.update(kwargs)
+				super(StatefulTFBlockFn, self).__init__(*args, **updated_kwargs)
 				self.__call__(*args, **kwargs)
 
 		# noinspection PyTypeChecker
