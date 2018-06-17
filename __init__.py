@@ -5,8 +5,8 @@ from typing import Type, Any
 import numpy
 import tensorflow as tf
 
-import sandblox.tf_util as U
-from sandblox.tf_util import zipsame
+import sandblox.util.tf_util as U
+from sandblox.util.tf_util import zipsame
 
 # TODO Introduce DesignViolation escalation system
 # TODO Implement sandblox saving mechanism
