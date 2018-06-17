@@ -190,9 +190,9 @@ class BlockBase(object):
 	props = None
 
 	def __init__(self, **props):
-		self.i = self.o = self.iz = self.oz = self.di = self.built_fn = self.scope = None
+		self.i = self.o = self.iz = self.oz = self.di = self.built_fn = None
 		props = Props(**props)
-		if self.props:
+		if self.props is not None:
 			props.__dict__.update(self.props.__dict__)
 		self.props = props
 		dic = props.__dict__
