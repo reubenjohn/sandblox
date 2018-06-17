@@ -5,8 +5,8 @@ from typing import Type, Any
 import numpy
 import tensorflow as tf
 
-from sandblox.util import zipsame
-from . import util as U
+import sandblox.tf_util as U
+from sandblox.tf_util import zipsame
 
 # TODO Introduce DesignViolation escalation system
 # TODO Implement sandblox saving mechanism
@@ -186,24 +186,19 @@ class UninitializedScope(Scope):
 # TODO Support forwarding of arguments to variable_scope
 class BlockBase(object):
 	scope = UninitializedScope()
-	props = None
 
-	def __init__(self, **props):
+	def __init__(self, **props_dict):
 		self.i = self.o = self.iz = self.oz = self.di = self.built_fn = None
-		props = Props(**props)
-		if self.props is not None:
-			props.__dict__.update(self.props.__dict__)
-		self.props = props
-		dic = props.__dict__
-		self.scope = Scope(self, dic.get('scope_name'))
-		self.reuse_var_scope = dic.get('reuse', None)
+		self.props = Props(**props_dict)
+		self.scope = Scope(self, props_dict.get('scope_name'))
+		self.reuse_var_scope = props_dict.get('reuse', None)
 		# TODO Test name collision when explicitly specified names for two blocks are the same, and the lack thereof
-		if dic.get('make_scope_unique', True):
-			graph = dic.get('graph', tf.get_default_graph())
+		if props_dict.get('make_scope_unique', True):
+			graph = props_dict.get('graph', tf.get_default_graph())
 			assert graph is not None, 'Could not find a default graph, so a graph must be provided since make_scope_unique is True'
 			self.scope.make_unique(graph)
 
-	def __call__(self, *args, **kwargs):
+	def build_graph(self, *args, **kwargs):
 		self.i, self.iz, self.di = self._bind(*args, **kwargs)
 		self._build(*args, **kwargs)
 		return self
@@ -216,7 +211,7 @@ class BlockBase(object):
 		self.scope = Scope(self, scope_name)
 
 	def _bind(self, *args, **kwargs):
-		input_args = util.FlatArgumentsBinder(self.build)(*args, **kwargs)
+		input_args = U.FlatArgumentsBinder(self.build)(*args, **kwargs)
 		i = DictAttrs(**input_args)
 		iz = list(input_args.values())
 		di = flattened_dynamic_arguments(input_args)
@@ -285,10 +280,17 @@ class BlockBase(object):
 
 # TODO Shift all Tensorflow logic to TF subclass
 class Function(BlockBase):
-	def __init__(self, *args, **kwargs):
-		super(Function, self).__init__(**kwargs)
+	def __init__(self, **default_props):
+		self.default_props_dict = default_props
+		super(Function, self).__init__(**default_props)
 
 	# self.__call__(*args, **kwargs)
+
+	def __call__(self, *args, **kwargs):
+		props = dict(**self.default_props_dict)
+		props.update(kwargs.pop('props', Props()).__dict__)
+		block = type(self)(**props)
+		return block.build_graph(*args, **kwargs)
 
 	def get_all_ops(self) -> list:
 		raise NotImplementedError
@@ -307,21 +309,21 @@ class Function(BlockBase):
 
 
 class TFFunction(Function):
-	def __init__(self, *args, **kwargs):
+	def __init__(self, **default_props):
 		self.givens = {}
 		self.options = None
 		self.run_metadata = None
 		self.built_fn = None
-		super(TFFunction, self).__init__(*args, **kwargs)
+		super(TFFunction, self).__init__(**default_props)
 		sess = self.props.__dict__.get('session', None)
 		assert sess is None or isinstance(sess, tf.Session), 'Specified session must be of type tf.Session'
 		self.props.__dict__['session'] = sess
 		self.props.session = sess
 
 	def __call__(self, *args, **kwargs):
-		super(TFFunction, self).__call__(*args, **kwargs)
-		self.built_fn = util.function(self.di, self.oz, session=self.props.session)
-		return self
+		block = super(TFFunction, self).__call__(*args, **kwargs)
+		block.built_fn = U.function(block.di, block.oz, session=block.props.session)
+		return block
 
 	def build(self, *args, **kwargs):
 		raise NotImplementedError
@@ -465,42 +467,56 @@ def cast_to_stateful_tf_block(ob) -> StatefulTFFunction:
 	return ob
 
 
-def get_class_for_block_fn(fn, base_cls, default_props: Props = None):
+def to_sandblox_function(fn, base_cls: Type[Function], default_props: Props = None):
 	class BlockFn(base_cls):
-		build = fn
-		props = default_props
-
-		def __init__(self, *args, **kwargs):
+		def __init__(self, **default_props):
 			self.build = fn
-			props = kwargs.pop('props', Props())
-			if props.scope_name is None:
-				props.scope_name = fn.__name__
-			super(BlockFn, self).__init__(**props.__dict__)
-			self.__call__(*args, **kwargs)
+			super(BlockFn, self).__init__(**default_props)
 
-	return BlockFn
+	if default_props is None:
+		default_props = Props()
+	if default_props.scope_name is None:
+		default_props.scope_name = fn.__name__
+	block_fn_instance = BlockFn(**default_props.__dict__)  # type: Type[Function]
+
+	return block_fn_instance
+
+
+def to_stateful_sandblox_function(fn, base_cls: Type[StatefulTFFunction], def_props: Props) -> Type[StatefulTFFunction]:
+	class StatefulTFBlockFn(base_cls):
+		state_manager = def_props.default_state_manager
+
+		def __init__(self, **props):
+			self.build = fn
+			super(StatefulTFBlockFn, self).__init__(**props)
+
+	if def_props.scope_name is None:
+		def_props.scope_name = fn.__name__
+	block_fn_instance = StatefulTFBlockFn(**def_props.__dict__)  # type: Type[Function]
+
+	return block_fn_instance
 
 
 class Decorators(object):
 	@staticmethod
 	def function_decorator(fn) -> Type[Function]:
-		return get_class_for_block_fn(fn, Function)
+		return to_sandblox_function(fn, Function)
 
 	@staticmethod
 	def function_meta_decorator(cls: Type[Any], default_props: Props = None) -> '(fn: Any) -> Type[Function]':
 		def block_decorator(fn) -> Type[Function]:
-			return get_class_for_block_fn(fn, cls, default_props)
+			return to_sandblox_function(fn, cls, default_props)
 
 		return block_decorator
 
 	@staticmethod
 	def tf_block_decorator(fn) -> Type[TFFunction]:
-		return get_class_for_block_fn(fn, TFFunction)
+		return to_sandblox_function(fn, TFFunction)
 
 	@staticmethod
 	def tf_block_meta_decorator(cls: Type[Any] = None, default_props: Props = None) -> '(fn: Any) -> Type[TFFunction]':
 		def tf_block_decorator(fn) -> Type[TFFunction]:
-			return get_class_for_block_fn(fn, cls, default_props)
+			return to_sandblox_function(fn, cls, default_props)
 
 		return tf_block_decorator
 
@@ -518,27 +534,17 @@ def tf_function(tf_function_cls=TFFunction, default_props: Props = None) -> Type
 
 
 def stateful_tf_function(default_state_type: StateManager,
-						 cls: Type[Any] = StatefulTFFunction,
+						 cls: Type[StatefulTFFunction] = StatefulTFFunction,
 						 default_props: Props = None) -> '(fn: Any) -> Type[StatefulTFFunction]':
 	if default_state_type is not None:
 		assert isinstance(default_state_type, StateManager)
-	assert issubclass(cls, StatefulTFFunction)
 
-	def stateful_tf_block_decorator(fn) -> Type[StatefulTFFunction]:
-		class StatefulTFBlockFn(cls):
-			build = fn
-			state_manager = default_state_type
-			props = default_props
+	if default_props is None:
+		default_props = Props()
+	default_props.default_state_manager = default_state_type
 
-			def __init__(self, *args, **kwargs):
-				self.build = fn
-				updated_kwargs = {'scope_name': fn.__name__}
-				updated_kwargs.update(kwargs)
-				super(StatefulTFBlockFn, self).__init__(*args, **updated_kwargs)
-				self.__call__(*args, **kwargs)
-
-		# noinspection PyTypeChecker
-		return StatefulTFBlockFn
+	def stateful_tf_block_decorator(fn) -> StatefulTFFunction:
+		return to_stateful_sandblox_function(fn, cls, default_props)
 
 	return stateful_tf_block_decorator
 

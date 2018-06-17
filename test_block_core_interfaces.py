@@ -4,7 +4,6 @@ from unittest import TestCase
 
 from sandblox import *
 from sandblox import Out
-from sandblox import util
 
 
 class FooLogic(object):
@@ -33,7 +32,9 @@ class FooLogic(object):
 	@staticmethod
 	def call(x, y, param_with_default=-5, **kwargs):
 		res = tf.add(
-			tf.add(tf.add(x, y, 'logic_add_1'), kwargs['extra'], 'logic_add_2'),
+			tf.add(
+				tf.add(x, y, 'logic_add_1'),
+				kwargs['extra'], 'logic_add_2'),
 			param_with_default, 'logic_add_3'
 		), tf.add(
 			FooLogic.foo_var,
@@ -114,7 +115,7 @@ class Suppress1(object):
 		def __init__(self, method_name: str = 'runTest'):
 			super(Suppress1.TestBlockBase, self).__init__(method_name)
 			with tf.variable_scope(self.block_foo_ob.scope.rel, reuse=True):
-				self.bound_flattened_logic_args = FooLogic.args_call(util.FlatArgumentsBinder(FooLogic.call))
+				self.bound_flattened_logic_args = FooLogic.args_call(U.FlatArgumentsBinder(FooLogic.call))
 				self.logic_outs = list(FooLogic.args_call(FooLogic.call))
 
 			self.options = tf.RunOptions()
@@ -212,27 +213,25 @@ class TestBlockFunction(Suppress1.TestBlockBase):
 	block_foo_ob = FooLogic.args_call(target)
 
 	def create_block_ob(self, **props) -> BlockBase:
-		return FooLogic.args_call(self.target, props=Props(**props))
+		return FooLogic.args_call(TestBlockFunction.target, props=Props(**props))
 
 	def create_bad_block_ob(self, **props) -> BlockBase:
-		return FooLogic.args_call(self.bad_target, props=Props(**props))
+		return FooLogic.args_call(TestBlockFunction.bad_target, props=Props(**props))
 
 	def __init__(self, method_name: str = 'runTest'):
 		super(TestBlockFunction, self).__init__(method_name)
 
 
 class TestBlockClass(Suppress1.TestBlockBase):
-	target = Foo
-	bad_target = BadFoo
-	block_foo_ob = FooLogic.args_call(target())
+	target = Foo()
+	bad_target = BadFoo()
+	block_foo_ob = FooLogic.args_call(target)
 
 	def create_block_ob(self, **props) -> BlockBase:
-		block = self.target(**props)
-		return FooLogic.args_call(block)
+		return FooLogic.args_call(TestBlockClass.target, props=Props(**props))
 
 	def create_bad_block_ob(self, **props) -> BlockBase:
-		block = self.bad_target(**props)
-		return FooLogic.args_call(block)
+		return FooLogic.args_call(TestBlockClass.bad_target, props=Props(**props))
 
 
 # noinspection PyCallByClass
