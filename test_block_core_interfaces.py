@@ -227,7 +227,8 @@ class TestBlockClass(Suppress1.TestBlockBase):
 	block_foo_ob = FooLogic.args_call(target())
 
 	def create_block_ob(self, **props) -> BlockBase:
-		return self.target(**props)
+		block = self.target(**props)
+		return FooLogic.args_call(block)
 
 	def create_bad_block_ob(self, **props) -> BlockBase:
 		block = self.bad_target(**props)
@@ -245,8 +246,3 @@ class TestBlockClassWithProps(TestBlockClass):
 
 	def create_bad_block_ob(self, **props):
 		return super(TestBlockClassWithProps, self).create_bad_block_ob(my_prop=0, **props)
-
-
-# TODO Handle default and implicit state management
-# TODO Lifecycle that fuses dynamic & static graph based computing
-

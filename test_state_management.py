@@ -3,6 +3,8 @@ from unittest import TestCase
 from sandblox import *
 
 
+# TODO Handle default and implicit state management
+# TODO Lifecycle that fuses dynamic & static graph based computing
 class Suppress2(object):
 	class TestHierarchicalBase(TestCase):
 		__slots__ = 'state_tensor', 'agnt', 'hypo'
