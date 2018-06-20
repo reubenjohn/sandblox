@@ -13,12 +13,6 @@ class FooLogic(object):
 	# TODO Have variables initialized for each call
 	args = [tf.ones((), tf.float32), di[0]]
 	kwargs = dict(extra=10)
-	foo_var = tf.get_variable('foo_var', initializer=-5.0)
-	foo_var_initializer = tf.variables_initializer([foo_var])
-
-	@classmethod
-	def initialize(cls):
-		tf.get_default_session().run(cls.foo_var_initializer)
 
 	@staticmethod
 	def args_call(fn, **expansion):
@@ -38,7 +32,7 @@ class FooLogic(object):
 				kwargs['extra'], 'logic_add_2'),
 			param_with_default, 'logic_add_3'
 		), tf.add(
-			FooLogic.foo_var,
+			tf.get_variable('foo_var', initializer=tf.random_uniform((), -1, 1)),
 			tf.random_uniform(()), 'logic_2_add'
 		)
 		return res
@@ -146,7 +140,6 @@ class Suppress1(object):
 
 		def test_eval(self):
 			with tf.Session() as sess:
-				FooLogic.initialize()
 				sess.run(tf.variables_initializer(self.block_foo_ob.get_variables()))
 				eval_100 = self.block_foo_ob.run(100)
 
@@ -159,7 +152,8 @@ class Suppress1(object):
 
 		def test_bad_foo_assertion(self):
 			with self.assertRaises(AssertionError) as bad_foo_context:
-				self.create_bad_block_ob(reuse=None)
+				with tf.Session(graph=tf.Graph()):
+					self.create_bad_block_ob(reuse=None)
 			self.assertTrue('must either return' in str(bad_foo_context.exception))
 
 		def test_run_overhead(self):
@@ -185,7 +179,7 @@ class Suppress1(object):
 		# TODO Test scope_name
 		def test_session_specification(self):
 			sess = tf.Session()
-			with tf.Session():
+			with tf.Session(graph=tf.Graph()):
 				block = self.create_block_ob(session=sess)
 				self.assertEqual(block.sess, sess)
 				block.set_session(tf.Session())
@@ -195,17 +189,37 @@ class Suppress1(object):
 				self.assertTrue('must be of type tf.Session' in str(bad_foo_context.exception))
 
 		def test_variable_assignment(self):
-			# with tf.Graph().as_default() as graph:
-			# 	block1 = self.create_block_ob()
-			# 	block2 = self.create_block_ob()
-			# 	vars1 = block1.get_variables()
-			# 	vars2 = block2.get_variables()
-			# 	vars = vars1.expand(*vars2)
-			# 	init = tf.variables_initializer(vars)
-			# 	with tf.Session() as sess:
-			# 		init.eval()
-			# 	block2.assign_vars(block1)
-			pass
+			with tf.Graph().as_default():
+				block1 = self.create_block_ob(scope_name='source')
+				block2 = self.create_block_ob(scope_name='target')
+				vars1 = block1.get_variables()
+				vars2 = block2.get_variables()
+				vars = vars1 + vars2
+				init = tf.variables_initializer(vars)
+				assignment_op = block2.assign_vars(block1)
+				eq_op = tf.equal(vars1, vars2)
+				with tf.Session() as sess:
+					sess.run(init)
+					self.assertTrue(not sess.run(eq_op))
+					sess.run(assignment_op)
+					self.assertTrue(sess.run(eq_op))
+
+		def test_reuse(self):
+			with tf.Graph().as_default():
+				block1 = self.create_block_ob(scope_name='reuse_me')
+				block2 = self.create_block_ob(scope_name='reuse_me', reuse=True)
+				vars1 = block1.get_variables()
+				tf.get_collection(tf.GraphKeys.UPDATE_OPS, block1.scope.exact_abs_pattern)
+				vars2 = block2.get_variables()
+				vars = vars1 + vars2
+				init = tf.variables_initializer(vars)
+				eq_op = tf.equal(vars1, vars2)
+				update_vars_1 = [tf.assign(var, 2) for var in vars1]
+				with tf.Session() as sess:
+					sess.run(init)
+					self.assertTrue(sess.run(eq_op))
+					sess.run(update_vars_1)
+					self.assertTrue(sess.run(eq_op))
 
 
 class TestBlockFunction(Suppress1.TestBlockBase):
