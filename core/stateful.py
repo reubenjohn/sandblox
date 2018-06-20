@@ -35,9 +35,9 @@ class StateManager(object):
 class StatefulTFFunction(TFFunction):
 	state_manager = None  # type: StateManager
 
-	def __init__(self, *args, **kwargs):
+	def __init__(self, **props):
 		self.prev_state = self.next_state = self.dynamic_state_index = self.state = None
-		super(StatefulTFFunction, self).__init__(**kwargs)
+		super(StatefulTFFunction, self).__init__(**props)
 
 	def _build(self, *args, **kwargs):
 		super(StatefulTFFunction, self)._build(*args, **kwargs)
