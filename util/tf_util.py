@@ -124,7 +124,7 @@ class TfInput(object):
 		"""
 		raise NotImplemented()
 
-	def make_feed_dict(data):
+	def make_feed_dict(self, data):
 		"""Given data input it to the placeholder(s)."""
 		raise NotImplemented()
 
@@ -155,7 +155,7 @@ class BatchInput(PlacholderTfInput):
 		name: str
 			name of the underlying placeholder
 		"""
-		super().__init__(tf.placeholder(dtype, [None] + list(shape), name=name))
+		super(BatchInput, self).__init__(tf.placeholder(dtype, [None] + list(shape), name=name))
 
 
 class Uint8Input(PlacholderTfInput):
@@ -173,9 +173,9 @@ class Uint8Input(PlacholderTfInput):
 			name of the underlying placeholder
 		"""
 
-		super().__init__(tf.placeholder(tf.uint8, [None] + list(shape), name=name))
+		super(Uint8Input, self).__init__(tf.placeholder(tf.uint8, [None] + list(shape), name=name))
 		self._shape = shape
-		self._output = tf.cast(super().get(), tf.float32) / 255.0
+		self._output = tf.cast(super(Uint8Input, self).get(), tf.float32) / 255.0
 
 	def get(self):
 		return self._output
@@ -329,7 +329,7 @@ def conv2d(x, num_filters, name, filter_size=(3, 3), stride=(1, 1), pad="SAME", 
 			tf.summary.image(summary_tag,
 							 tf.transpose(tf.reshape(w, [filter_size[0], filter_size[1], -1, 1]),
 										  [2, 0, 1, 3]),
-							 max_images=10)
+							 max_outputs=10)
 
 		return tf.nn.conv2d(x, w, stride_shape, pad) + b
 

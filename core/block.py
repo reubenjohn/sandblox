@@ -1,6 +1,3 @@
-import tensorflow as tf
-
-import sandblox.util.tf_util as U
 from sandblox.util import *
 
 

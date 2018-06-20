@@ -1,7 +1,6 @@
 from typing import Type
 
 import numpy as np
-import tensorflow as tf
 
 from sandblox.core.block import is_dynamic_arg
 from sandblox.core.function import TFFunction
@@ -38,7 +37,7 @@ class StatefulTFFunction(TFFunction):
 
 	def __init__(self, *args, **kwargs):
 		self.prev_state = self.next_state = self.dynamic_state_index = self.state = None
-		super(StatefulTFFunction, self).__init__(*args, **kwargs)
+		super(StatefulTFFunction, self).__init__(**kwargs)
 
 	def _build(self, *args, **kwargs):
 		super(StatefulTFFunction, self)._build(*args, **kwargs)
@@ -83,7 +82,7 @@ def to_stateful_sandblox_function(fn, base_cls: Type[StatefulTFFunction], def_pr
 
 	if def_props.scope_name is None:
 		def_props.scope_name = fn.__name__
-	block_fn_instance = StatefulTFBlockFn(**def_props.__dict__)  # type: Type[Function]
+	block_fn_instance = StatefulTFBlockFn(**def_props.__dict__)  # type: Type[StatefulTFFunction]
 
 	return block_fn_instance
 
