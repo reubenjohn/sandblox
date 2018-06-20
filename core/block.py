@@ -1,17 +1,5 @@
+from sandblox.core.io import *
 from sandblox.util import *
-
-
-# TODO Add tests for dynamic arg concept
-def dynamic(*args):
-	for arg in args:
-		arg.is_d_inp = True
-	if len(args) == 1:
-		return args[0]
-	return args
-
-
-def is_dynamic_arg(arg):
-	return hasattr(arg, 'is_d_inp') or (isinstance(arg, tf.Tensor) and arg.op.type == 'Placeholder')
 
 
 class OptionalDynamicArg(object):

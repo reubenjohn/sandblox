@@ -10,11 +10,11 @@ def absolute_scope_name(relative_scope_name):
 	return base + relative_scope_name
 
 
-def infer_scope_name(self, scope_name):
+def _infer_scope_name(self, scope_name):
 	return scope_name if scope_name is not None else type(self).__name__
 
 
-infer_rel_scope_name = infer_scope_name
+infer_rel_scope_name = _infer_scope_name
 
 
 def infer_abs_scope_name(self, scope_name: str = None):

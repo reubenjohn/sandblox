@@ -4,8 +4,8 @@ from typing import Type, Union, Callable
 import tensorflow as tf
 
 from sandblox.core.block import BlockBase
+from sandblox.core.io import Props
 from sandblox.util import tf_util as U
-from sandblox.util.misc import *
 
 
 # TODO Shift all Tensorflow logic to TF subclass
