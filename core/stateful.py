@@ -1,9 +1,9 @@
-from typing import Type
+from typing import Type, Callable
 
 import numpy as np
 
 from sandblox.core.block import is_dynamic_arg
-from sandblox.core.function import TFFunction
+from sandblox.core.function import TFFunction, instantiate_sandblox_function
 from sandblox.util import *
 
 
@@ -72,19 +72,18 @@ class StatefulTFFunction(TFFunction):
 			self.state = outputs[self.dynamic_state_index]
 
 
-def to_stateful_sandblox_function(fn, base_cls: Type[StatefulTFFunction], def_props: Props) -> Type[StatefulTFFunction]:
-	class StatefulTFBlockFn(base_cls):
-		state_manager = def_props.default_state_manager
+def to_stateful_sandblox_function(fn: Callable, default_state_manager: StateManager, base_cls: Type[StatefulTFFunction],
+								  def_props: Props) -> Type[StatefulTFFunction]:
+	# noinspection PyAbstractClass
+	class StatefulDecoratedFunction(base_cls):
+		build = fn
+		state_manager = default_state_manager
 
 		def __init__(self, **props):
 			self.build = fn
-			super(StatefulTFBlockFn, self).__init__(**props)
+			super(StatefulDecoratedFunction, self).__init__(**props)
 
-	if def_props.scope_name is None:
-		def_props.scope_name = fn.__name__
-	block_fn_instance = StatefulTFBlockFn(**def_props.__dict__)  # type: Type[StatefulTFFunction]
-
-	return block_fn_instance
+	return instantiate_sandblox_function(StatefulDecoratedFunction, fn.__name__, def_props)
 
 
 def stateful_tf_function(default_state_type: StateManager,
@@ -93,11 +92,7 @@ def stateful_tf_function(default_state_type: StateManager,
 	if default_state_type is not None:
 		assert isinstance(default_state_type, StateManager)
 
-	if default_props is None:
-		default_props = Props()
-	default_props.default_state_manager = default_state_type
-
-	def stateful_tf_block_decorator(fn) -> StatefulTFFunction:
-		return to_stateful_sandblox_function(fn, cls, default_props)
+	def stateful_tf_block_decorator(fn: Callable) -> StatefulTFFunction:
+		return to_stateful_sandblox_function(fn, default_state_type, cls, default_props)
 
 	return stateful_tf_block_decorator

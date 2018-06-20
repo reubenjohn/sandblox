@@ -1,5 +1,5 @@
 import inspect
-from typing import Type
+from typing import Type, Union, Callable
 
 import tensorflow as tf
 
@@ -134,54 +134,40 @@ class TFFunction(Function):
 		return weight_update
 
 
-def to_sandblox_function(fn, base_cls: Type[Function], def_props: Props = None):
-	# noinspection PyAbstractClass
-	class BlockFn(base_cls):
-		def __init__(self, **default_props):
-			self.build = fn
-			super(BlockFn, self).__init__(**default_props)
-
+def instantiate_sandblox_function(cls: Type[Function], fn_name, def_props: Props = None):
 	if def_props is None:
 		def_props = Props()
 	if def_props.scope_name is None:
-		def_props.scope_name = fn.__name__
-	block_fn_instance = BlockFn(**def_props.__dict__)  # type: Type[Function]
+		def_props.scope_name = fn_name
+	block_fn_instance = cls(**def_props.__dict__)  # type: Type[Function]
 
 	return block_fn_instance
 
 
-class Decorators(object):
-	@staticmethod
-	def function_decorator(fn) -> Type[Function]:
-		return to_sandblox_function(fn, Function)
+def to_sandblox_function(fn: Callable, base_cls: Type[Function], def_props: Props = None):
+	# noinspection PyAbstractClass
+	class DecoratedFunction(base_cls):
+		build = fn
 
-	@staticmethod
-	def function_meta_decorator(cls: Type[Function], default_props: Props = None) -> '(fn: Any) -> Type[Function]':
-		def block_decorator(fn) -> Type[Function]:
-			return to_sandblox_function(fn, cls, default_props)
+		def __init__(self, **default_props):
+			self.build = fn
+			super(DecoratedFunction, self).__init__(**default_props)
 
-		return block_decorator
+	return instantiate_sandblox_function(DecoratedFunction, fn.__name__, def_props)
 
-	@staticmethod
+
+def _tf_block_decorator(fn: Callable) -> Type[TFFunction]:
+	return to_sandblox_function(fn, TFFunction)
+
+
+def _tf_block_meta_decorator(cls: Type[Function] = None,
+							 default_props: Props = None) -> '(fn: Any) -> Type[TFFunction]':
 	def tf_block_decorator(fn) -> Type[TFFunction]:
-		return to_sandblox_function(fn, TFFunction)
+		return to_sandblox_function(fn, cls, default_props)
 
-	@staticmethod
-	def tf_block_meta_decorator(cls: Type[Function] = None,
-								default_props: Props = None) -> '(fn: Any) -> Type[TFFunction]':
-		def tf_block_decorator(fn) -> Type[TFFunction]:
-			return to_sandblox_function(fn, cls, default_props)
-
-		return tf_block_decorator
+	return tf_block_decorator
 
 
-# noinspection PyShadowingBuiltins
-def function(cls=Function) -> Type[Function]:
-	is_meta_decorator = not inspect.isfunction(cls)
-	return Decorators.function_meta_decorator(cls) if is_meta_decorator else Decorators.function_decorator(cls)
-
-
-def tf_function(tf_function_cls=TFFunction, default_props: Props = None) -> Type[TFFunction]:
-	is_meta_decorator = not inspect.isfunction(tf_function_cls)
-	return Decorators.tf_block_meta_decorator(tf_function_cls, default_props) if is_meta_decorator \
-		else Decorators.tf_block_decorator(tf_function_cls)
+def tf_function(fn_or_cls: Union[Callable, TFFunction] = TFFunction, default_props: Props = None) -> Type[TFFunction]:
+	is_meta_decorator = not inspect.isfunction(fn_or_cls)
+	return _tf_block_meta_decorator(fn_or_cls, default_props) if is_meta_decorator else _tf_block_decorator(fn_or_cls)
