@@ -1,4 +1,5 @@
 from sandblox.core.io import *
+from sandblox.core.io import BlockOutsBase
 from sandblox.util import *
 
 
@@ -47,7 +48,14 @@ class BlockBase(object):
 
 	def build_graph(self, *args, **kwargs):
 		self.i, self.iz, self.di = self._bind(*args, **kwargs)
-		self._build(*args, **kwargs)
+
+		with tf.variable_scope(self.scope.rel, reuse=self.reuse_var_scope):
+			if len(self.get_all_ops(tf.get_variable_scope().name)) > 0:
+				print('WARNING: Building ops into pollute d name scope')  # TODO Implement DesignViolation here
+			out = self.build_wrapper(*args, **kwargs)
+		self.o = out.o
+		self.oz = out.oz
+
 		return self
 
 	def is_dynamic(self):
@@ -64,25 +72,18 @@ class BlockBase(object):
 		di = flattened_dynamic_arguments(input_args)
 		return i, iz, di
 
-	def _build(self, *args, **kwargs):
-		if len(self.get_all_ops()) > 0:
-			print('WARNING: Building ops into pollute d name scope')  # TODO Implement DesignViolation here
-		with tf.variable_scope(self.scope.rel, reuse=self.reuse_var_scope):
-			ret = self.build(*args, **kwargs)
+	def build_wrapper(self, *args, **kwargs) -> BlockOutsBase:
+		ret = self.build(*args, **kwargs)
 
 		if isinstance(ret, Out.cls):
-			block_outputs = ret
+			return ret
 		elif hasattr(ret, '__len__') and len(ret) > 1 and isinstance(ret[0], Out.cls):
-			block_outputs = ret[0]
+			return ret[0]
 		else:
 			raise AssertionError(
 				'A SandBlock must either return only a ' + type(Out).__name__
 				+ ' or it must be the first element of what is returned'
 			)
-		self.o = block_outputs.o
-		self.oz = block_outputs.oz
-
-		return ret
 
 	def build(self, *args, **kwargs):
 		raise NotImplementedError
@@ -109,7 +110,7 @@ class BlockBase(object):
 	def post_my_eval(self, outputs):
 		pass
 
-	def get_all_ops(self) -> list:
+	def get_all_ops(self, scope_name: str = None) -> list:
 		raise NotImplementedError
 
 	def get_variables(self):

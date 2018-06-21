@@ -5,15 +5,18 @@ import tensorflow as tf
 from sandblox.util.misc import DictAttrBuilder, DictAttrs, DictAttrBuilderFactory
 
 
-class _BlockOutsBase(DictAttrBuilder):
+class BlockOutsBase(DictAttrBuilder):
 	def _on_new_attr_val(self, key, val):
 		if key in self.o:
-			print('Warning an output named %s already exists with value: %s' % (key, self.o[key]))
+			# TODO Use DesignViolation implementation instead
+			print('Warning an existing output named %s with value %s will be overwritten' % (key, self.o[key]))
+			self.oz[self.oz.index(self.o[key])] = val
+		else:
+			self.oz.append(val)
 		self.o[key] = val
-		self.oz.append(val)
 
 
-class BlockOutsKwargs(_BlockOutsBase):
+class BlockOutsKwargs(BlockOutsBase):
 	_you_were_warned = False  # TODO Use DesignViolation implementation instead
 
 	def __init__(self, **kwargs):
@@ -26,7 +29,7 @@ class BlockOutsKwargs(_BlockOutsBase):
 		self.oz = tuple(val for val in kwargs.values())
 
 
-class BlockOutsAttrs(_BlockOutsBase):
+class BlockOutsAttrs(BlockOutsBase):
 	def __init__(self):
 		self.o = DictAttrs()
 		self.oz = []

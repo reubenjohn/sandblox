@@ -4,6 +4,7 @@ import numpy as np
 
 from sandblox.core.function import TFFunction, instantiate_sandblox_function
 from sandblox.core.io import *
+from sandblox.core.io import BlockOutsBase
 from sandblox.util import *
 
 
@@ -39,23 +40,23 @@ class StatefulTFFunction(TFFunction):
 		self.prev_state = self.next_state = self.dynamic_state_index = self.state = None
 		super(StatefulTFFunction, self).__init__(**props)
 
-	def _build(self, *args, **kwargs):
-		super(StatefulTFFunction, self)._build(*args, **kwargs)
+	def build_wrapper(self, *args, **kwargs) -> BlockOutsBase:
+		out = super(StatefulTFFunction, self).build_wrapper(*args, **kwargs)
 		# TODO any output which is a tuple should be inferred as stateful
-		state = self.o.state
-		oz_index = self.oz.index(state)
+		state = out.o.state
+		oz_index = out.oz.index(state)
 		if isinstance(state, tuple):
 			self.prev_state, self.state_manager, self.next_state = state
 			if is_dynamic_arg(self.prev_state):
 				next_state = self.next_state
 				self.dynamic_state_index = oz_index
 			else:
-				dependencies = [self.o[key] for key in self.o if key != 'state']
+				dependencies = [out.o[key] for key in out.o if key != 'state']
 				with tf.control_dependencies(dependencies):
 					next_state = self.state_manager.assign(self.prev_state, self.next_state)
 
-			self.o.state = next_state
-			self.oz[oz_index] = next_state
+			out.state(next_state)
+		return out
 
 	def build(self, *args, **kwargs):
 		raise NotImplementedError

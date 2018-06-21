@@ -28,7 +28,7 @@ class Function(BlockBase):
 	def build(self, *args, **kwargs):
 		raise NotImplementedError
 
-	def get_all_ops(self) -> list:
+	def get_all_ops(self, scope_name: str = None) -> list:
 		raise NotImplementedError
 
 	def get_variables(self):
@@ -105,10 +105,12 @@ class TFFunction(Function):
 	def eval(self, *args, **kwargs):
 		return self.built_fn(*args, **kwargs)
 
-	def get_all_ops(self) -> list:
+	def get_all_ops(self, scope_name: str = None) -> list:
+		if scope_name is None:
+			scope_name = self.scope.exact_abs_pattern
 		all_ops = set()
 		for key in U.TFGraphKeys:
-			collect = tf.get_collection(key, self.scope.exact_abs_pattern)
+			collect = tf.get_collection(key, scope_name)
 			if len(collect) > 0:
 				list(map(all_ops.add, collect))  # TODO Add coverage for this line
 		return list(all_ops)
