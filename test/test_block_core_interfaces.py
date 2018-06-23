@@ -40,7 +40,6 @@ class FooLogic(object):
 
 @sx.tf_function
 def foo(x, y, param_with_default=-5, **kwargs):
-	# noinspection PyTypeChecker
 	b, a = FooLogic.call(x, y, param_with_default, **kwargs)
 
 	if sx.Out == sx.BlockOutsKwargs:
@@ -51,7 +50,6 @@ def foo(x, y, param_with_default=-5, **kwargs):
 
 @sx.tf_function
 def bad_foo(x, y, param_with_default=-5, **kwargs):
-	# noinspection PyTypeChecker
 	b, a = FooLogic.call(x, y, param_with_default, **kwargs)
 	return b, a
 
@@ -59,7 +57,6 @@ def bad_foo(x, y, param_with_default=-5, **kwargs):
 # noinspection PyClassHasNoInit
 class Foo(sx.TFFunction):
 	def build(self, x, y, param_with_default=-5, **kwargs):
-		# noinspection PyTypeChecker
 		b, a = FooLogic.call(x, y, param_with_default, **kwargs)
 
 		# TODO Test both cases for python 3.6+
@@ -72,7 +69,6 @@ class Foo(sx.TFFunction):
 # noinspection PyClassHasNoInit
 class BadFoo(sx.TFFunction):
 	def build(self, x, y, param_with_default=-5, **kwargs):
-		# noinspection PyTypeChecker
 		b, a = FooLogic.call(x, y, param_with_default, **kwargs)
 
 		return b, a
@@ -92,7 +88,6 @@ class BadFooWithProps(BadFoo):
 
 class Suppress(object):
 	# Wrapped classes don't get tested themselves
-	# noinspection PyCallByClass
 	class TestBlockBase(TestCase):
 		target = None  # type: Type[sx.TFFunction]
 		bad_target = None  # type: Type[sx.TFFunction]
@@ -194,8 +189,7 @@ class Suppress(object):
 				block2 = self.create_block_ob(scope_name='target')
 				vars1 = block1.get_variables()
 				vars2 = block2.get_variables()
-				vars = vars1 + vars2
-				init = tf.variables_initializer(vars)
+				init = tf.variables_initializer(vars1 + vars2)
 				assignment_op = block2.assign_vars(block1)
 				eq_op = tf.equal(vars1, vars2)
 				with tf.Session() as sess:
@@ -211,8 +205,7 @@ class Suppress(object):
 				vars1 = block1.get_variables()
 				tf.get_collection(tf.GraphKeys.UPDATE_OPS, block1.scope.exact_abs_pattern)
 				vars2 = block2.get_variables()
-				vars = vars1 + vars2
-				init = tf.variables_initializer(vars)
+				init = tf.variables_initializer(vars1 + vars2)
 				eq_op = tf.equal(vars1, vars2)
 				update_vars_1 = [tf.assign(var, 2) for var in vars1]
 				with tf.Session() as sess:
@@ -249,7 +242,6 @@ class TestBlockClass(Suppress.TestBlockBase):
 		return FooLogic.args_call(TestBlockClass.bad_target, props=sx.Props(**props))
 
 
-# noinspection PyCallByClass
 class TestBlockClassWithProps(TestBlockClass):
 	target = FooWithProps
 	bad_target = BadFooWithProps
