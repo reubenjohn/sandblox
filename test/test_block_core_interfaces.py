@@ -90,7 +90,7 @@ class BadFooWithProps(BadFoo):
 		assert self.props.my_prop == 0
 
 
-class Suppress1(object):
+class Suppress(object):
 	# Wrapped classes don't get tested themselves
 	# noinspection PyCallByClass
 	class TestBlockBase(TestCase):
@@ -108,7 +108,7 @@ class Suppress1(object):
 		ELAPSE_TARGET = 2500  # usec
 
 		def __init__(self, method_name: str = 'runTest'):
-			super(Suppress1.TestBlockBase, self).__init__(method_name)
+			super(Suppress.TestBlockBase, self).__init__(method_name)
 			with tf.variable_scope(self.block_foo_ob.scope.rel, reuse=True):
 				self.bound_flattened_logic_args = FooLogic.args_call(sx.U.FlatArgumentsBinder(FooLogic.call))
 				self.logic_outs = list(FooLogic.args_call(FooLogic.call))
@@ -129,7 +129,7 @@ class Suppress1(object):
 
 		@staticmethod
 		def core_op_names(ops) -> List[str]:
-			return list(map(Suppress1.TestBlockBase.core_op_name, ops))
+			return list(map(Suppress.TestBlockBase.core_op_name, ops))
 
 		def test_block_out(self):
 			self.assertEqual(self.core_op_name(self.block_foo_ob.o.a), self.core_op_name(self.logic_outs[1]))
@@ -165,12 +165,12 @@ class Suppress1(object):
 				then = time.time()
 				[self.block_foo_ob.run(100) for _ in range(1000)]
 				elapse = int((time.time() - then) * 1e9 / 1000)
-				if elapse > Suppress1.TestBlockBase.ELAPSE_LIMIT:
+				if elapse > Suppress.TestBlockBase.ELAPSE_LIMIT:
 					overdue_percentage = \
-						(Suppress1.TestBlockBase.ELAPSE_LIMIT - elapse) * 100 / Suppress1.TestBlockBase.ELAPSE_LIMIT
+						(Suppress.TestBlockBase.ELAPSE_LIMIT - elapse) * 100 / Suppress.TestBlockBase.ELAPSE_LIMIT
 					self.fail('Overdue by %.1f%% (%3dns elapsed)' % (overdue_percentage, elapse))
 				else:
-					goal_progress = 100 + ((Suppress1.TestBlockBase.ELAPSE_TARGET - elapse) * 100 / elapse)
+					goal_progress = 100 + ((Suppress.TestBlockBase.ELAPSE_TARGET - elapse) * 100 / elapse)
 					print('Efficiency goal progress %.1f%% (%3dns elapsed) - %s' % (
 						goal_progress, elapse, type(self).__name__))
 
@@ -222,7 +222,7 @@ class Suppress1(object):
 					self.assertTrue(sess.run(eq_op))
 
 
-class TestBlockFunction(Suppress1.TestBlockBase):
+class TestBlockFunction(Suppress.TestBlockBase):
 	target = foo
 	bad_target = bad_foo
 	block_foo_ob = FooLogic.args_call(target)
@@ -237,7 +237,7 @@ class TestBlockFunction(Suppress1.TestBlockBase):
 		super(TestBlockFunction, self).__init__(method_name)
 
 
-class TestBlockClass(Suppress1.TestBlockBase):
+class TestBlockClass(Suppress.TestBlockBase):
 	target = Foo()
 	bad_target = BadFoo()
 	block_foo_ob = FooLogic.args_call(target)

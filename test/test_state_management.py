@@ -5,20 +5,20 @@ from sandblox import *
 
 # TODO Handle default and implicit state management
 # TODO Lifecycle that fuses dynamic & static graph based computing
-class Suppress2(object):
+class Supress(object):
 	class TestHierarchicalBase(TestCase):
 		__slots__ = 'state_tensor', 'agnt', 'hypo'
 
 		def __init__(self, method_name: str = 'runTest'):
-			super(Suppress2.TestHierarchicalBase, self).__init__(method_name)
+			super(Supress.TestHierarchicalBase, self).__init__(method_name)
 
 		def test_inputs(self):
 			ai = self.agnt.i
 			self.assertEqual(self.agnt.iz, [ai.selected_index, ai.selectors, ai.hypothesis])
-			hi = ai.hypothesis.i
-			expected_di = [ai.selected_index, hi.ob]
+			hi = ai.hypothesis
+			expected_di = [ai.selected_index, hi.i.ob]
 			if is_dynamic_arg(self.state_tensor):
-				expected_di.append(hi.state)
+				expected_di.append(hi.i.state)
 			self.assertEqual(self.agnt.di, expected_di)
 
 		def test_eval(self):
@@ -80,7 +80,7 @@ def build_agent(agent_cls, hypothesis):
 	)
 
 
-class TestPlaceholderStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
+class TestPlaceholderStateHierarchicalBlock(Supress.TestHierarchicalBase):
 	state_tensor = dense_hypothesis.props.state_manager.new_placeholder()
 	hypo = build_hypothesis(state_tensor, 'placeholder_hypothesis')
 	agnt = build_agent(agent, hypo)
@@ -98,7 +98,7 @@ class TestPlaceholderStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
 				not np.alltrue(np.equal(self.agnt.state, old_state)))
 
 
-class TestVariableStateHierarchicalBlock(Suppress2.TestHierarchicalBase):
+class TestVariableStateHierarchicalBlock(Supress.TestHierarchicalBase):
 	state_tensor = dense_hypothesis.props.state_manager.new_variable()
 	hypo = build_hypothesis(state_tensor, 'variable_hypothesis2')
 	agnt = build_agent(agent, hypo)
@@ -109,7 +109,7 @@ def default_state_manager_agent(selected_index, selectors, hypothesis) -> Statef
 	return agent_logic(selected_index, selectors, hypothesis)
 
 
-class TestPlaceholderDefaultStateManagerHierarchicalBlock(Suppress2.TestHierarchicalBase):
+class TestPlaceholderDefaultStateManagerHierarchicalBlock(Supress.TestHierarchicalBase):
 	state_tensor = dense_hypothesis.props.state_manager.new_placeholder()
 	hypo = build_hypothesis(state_tensor, 'placeholder_hypothesis2')
 	agnt = build_agent(default_state_manager_agent, hypo)
@@ -127,7 +127,7 @@ class TestPlaceholderDefaultStateManagerHierarchicalBlock(Suppress2.TestHierarch
 				not np.alltrue(np.equal(self.agnt.state, old_state)))
 
 
-class TestVariableDefaultStateManagerHierarchicalBlock(Suppress2.TestHierarchicalBase):
+class TestVariableDefaultStateManagerHierarchicalBlock(Supress.TestHierarchicalBase):
 	state_tensor = dense_hypothesis.props.state_manager.new_variable()
 	hypo = build_hypothesis(state_tensor, 'variable_hypothesis')
 	agnt = build_agent(default_state_manager_agent, hypo)
