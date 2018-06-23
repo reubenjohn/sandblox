@@ -55,44 +55,63 @@ class TFStateManager(StateManager):
 		return tf.assign(dest_state, src_state)
 
 
+class DynamicStateBinder(object):
+	def __init__(self, output_index, prev, state_manager: StateManager, next):
+		self.is_d_inp = True
+		self.dynamic_output_index = output_index
+		self.prev, self.state_manager, self.next = prev, state_manager, next
+		self.dynamic_val = state_manager.new()
+
+
 class StatefulTFFunction(TFFunction):
 	state_manager = None  # type: TFStateManager
 
 	def __init__(self, **props):
-		self.prev_state = self.next_state = self.dynamic_state_index = self.state = None
+		self.states = DictAttrs()
 		super(StatefulTFFunction, self).__init__(**props)
 
 	def build_wrapper(self, *args, **kwargs) -> BlockOutsBase:
 		out = super(StatefulTFFunction, self).build_wrapper(*args, **kwargs)
-		# TODO any output which is a tuple should be inferred as stateful
-		state = out.o.state
-		oz_index = out.oz.index(state)
-		if isinstance(state, tuple):
-			self.prev_state, self.state_manager, self.next_state = state
-			if is_dynamic_arg(self.prev_state):
-				next_state = self.next_state
-				self.dynamic_state_index = oz_index
-			else:
-				dependencies = [out.o[key] for key in out.o if key != 'state']
-				with tf.control_dependencies(dependencies):
-					next_state = self.state_manager.assign(self.prev_state, self.next_state)
+		for index, key in enumerate(out.o):
+			output = out.o[key]
+			if isinstance(output, tuple):
+				if len(output) == 3:
+					prev_op, state_manager, next_op = output
+				elif len(output) == 2:
+					prev_op, next_op = output
+					assert self.state_manager is not None
+					state_manager = self.state_manager
+				else:
+					raise ValueError('Unexpected tuple of length: %d' % len(output))
 
-			out.state(next_state)
+				out.__getattr__(key)(next_op)
+				if is_dynamic_arg(prev_op):
+					self.states[key] = DynamicStateBinder(index, prev_op, state_manager, next_op)
+				else:
+					dependencies = out.oz
+					with tf.control_dependencies(dependencies):
+						next_op = state_manager.assign(prev_op, next_op)
+
+				out.__getattr__(key)(next_op)
 		return out
 
 	def build(self, *args, **kwargs):
 		raise NotImplementedError
 
+	@property
+	def dynamic_states(self):
+		return [state for state in [self.states[key] for key in self.states] if is_dynamic_arg(state)]
+
 	def get_my_givens(self):
 		binds = super(StatefulTFFunction, self).get_my_givens()
-		if is_dynamic_arg(self.prev_state):
-			binds[self.prev_state] = self.state
+		for dynamic_state_binder in self.dynamic_states:
+			binds[dynamic_state_binder.prev] = dynamic_state_binder.dynamic_val
 		return binds
 
 	def post_my_eval(self, outputs):
 		super(StatefulTFFunction, self).post_my_eval(outputs)
-		if self.dynamic_state_index is not None:
-			self.state = outputs[self.dynamic_state_index]
+		for dynamic_state_binder in self.dynamic_states:
+			dynamic_state_binder.dynamic_val = outputs[dynamic_state_binder.dynamic_output_index]
 
 
 def to_stateful_sandblox_function(fn: Callable, default_state_manager: TFStateManager,

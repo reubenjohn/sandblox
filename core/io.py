@@ -51,4 +51,5 @@ def dynamic(*args):
 
 
 def is_dynamic_arg(arg):
-	return hasattr(arg, 'is_d_inp') or (isinstance(arg, tf.Tensor) and arg.op.type == 'Placeholder')
+	return (hasattr(arg, 'is_d_inp') and getattr(arg, 'is_d_inp')) or (
+		isinstance(arg, tf.Tensor) and arg.op.type == 'Placeholder')

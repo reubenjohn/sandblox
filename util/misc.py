@@ -10,9 +10,9 @@ class DictAttrs(object):
 	def __getitem__(self, item):
 		return self.__dict__.__getitem__(item)
 
-	# To prevent unhelpful lint warnings
 	def __getattr__(self, item):
-		pass
+		if not item in self.__dict__:
+			raise LookupError
 
 	def __setitem__(self, key, value):
 		self.__dict__.__setitem__(key, value)

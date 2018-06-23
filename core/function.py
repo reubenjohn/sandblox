@@ -139,7 +139,7 @@ class TFFunction(Function):
 def instantiate_sandblox_function(cls: Type[Function], fn_name, def_props: Props = None):
 	if def_props is None:
 		def_props = Props()
-	if def_props.scope_name is None:
+	if 'scope_name' in def_props:
 		def_props.scope_name = fn_name
 	block_fn_instance = cls(**def_props.__dict__)  # type: Type[Function]
 
