@@ -9,8 +9,30 @@ from sandblox.util import *
 
 
 class StateManager(object):
-	def __init__(self, shape):
+	def __init__(self, *args, **kwargs):
+		pass
+
+	def batch_shape(self, batch_size: [int, list] = 1):
+		raise NotImplementedError
+
+	def new(self, batch_size: [int, list] = 1):
+		raise NotImplementedError
+
+	def new_placeholder(self, batch_size: [None, int, list] = None):
+		raise NotImplementedError
+
+	def new_variable(self, batch_size: [int, list] = 1):
+		raise NotImplementedError
+
+	def assign(self, dest_state, src_state):
+		raise NotImplementedError
+
+
+class TFStateManager(StateManager):
+	def __init__(self, shape, dtype=np.float32, *args, **kwargs):
+		super(TFStateManager, self).__init__(*args, **kwargs)
 		self._shape = shape
+		self._dtype = dtype
 
 	def shape(self):
 		return self._shape
@@ -23,10 +45,10 @@ class StateManager(object):
 		return np.random.uniform(-1, 1, self.batch_shape(batch_size))
 
 	def new_placeholder(self, batch_size: [None, int, list] = None):
-		return tf.placeholder(tf.float32, self.batch_shape(batch_size), 'state')
+		return tf.placeholder(tf.as_dtype(self._dtype), self.batch_shape(batch_size), 'state')
 
 	def new_variable(self, batch_size: [int, list] = 1):
-		return tf.Variable(self.new(batch_size), name='state')
+		return tf.Variable(self.new(batch_size), dtype=tf.as_dtype(self._dtype), name='state')
 
 	# TODO Investigate implications of making this static
 	def assign(self, dest_state, src_state):
@@ -34,7 +56,7 @@ class StateManager(object):
 
 
 class StatefulTFFunction(TFFunction):
-	state_manager = None  # type: StateManager
+	state_manager = None  # type: TFStateManager
 
 	def __init__(self, **props):
 		self.prev_state = self.next_state = self.dynamic_state_index = self.state = None
@@ -73,7 +95,8 @@ class StatefulTFFunction(TFFunction):
 			self.state = outputs[self.dynamic_state_index]
 
 
-def to_stateful_sandblox_function(fn: Callable, default_state_manager: StateManager, base_cls: Type[StatefulTFFunction],
+def to_stateful_sandblox_function(fn: Callable, default_state_manager: TFStateManager,
+								  base_cls: Type[StatefulTFFunction],
 								  def_props: Props) -> Type[StatefulTFFunction]:
 	# noinspection PyAbstractClass
 	class StatefulDecoratedFunction(base_cls):
@@ -87,11 +110,11 @@ def to_stateful_sandblox_function(fn: Callable, default_state_manager: StateMana
 	return instantiate_sandblox_function(StatefulDecoratedFunction, fn.__name__, def_props)
 
 
-def stateful_tf_function(default_state_type: StateManager,
+def stateful_tf_function(default_state_type: TFStateManager,
 						 cls: Type[StatefulTFFunction] = StatefulTFFunction,
 						 default_props: Props = None) -> '(fn: Any) -> Type[StatefulTFFunction]':
 	if default_state_type is not None:
-		assert isinstance(default_state_type, StateManager)
+		assert isinstance(default_state_type, TFStateManager)
 
 	def stateful_tf_block_decorator(fn: Callable) -> StatefulTFFunction:
 		return to_stateful_sandblox_function(fn, default_state_type, cls, default_props)

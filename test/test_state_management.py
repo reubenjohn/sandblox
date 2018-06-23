@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from unittest import TestCase
 
 from sandblox import *
@@ -9,8 +10,34 @@ class Supress(object):
 	class TestHierarchicalBase(TestCase):
 		__slots__ = 'state_tensor', 'agnt', 'hypo'
 
-		def __init__(self, method_name: str = 'runTest'):
-			super(Supress.TestHierarchicalBase, self).__init__(method_name)
+		def setUp(self):
+			super(Supress.TestHierarchicalBase, self).setUp()
+			self.sess = tf.Session(graph=tf.Graph())
+			with self.sess.graph.as_default():
+				self.setUp_graph(*self.get_graph_params())
+
+		def setUp_graph(self, state_tensor, agent_cls):
+			self.state_tensor = state_tensor
+			self.agnt = agent_cls(
+				tf.placeholder(tf.float32, (), 'selected_index'),
+				[greedy, KGreedy(k=2)],
+				dense_hypothesis(
+					tf.placeholder(tf.float32, [None, 2], 'ob'),
+					state_tensor,
+					props=Props(scope_name='hypo')
+				),
+				props=Props(scope_name='agent')
+			)
+			if is_dynamic_arg(self.state_tensor):
+				self.agnt.state = dense_hypothesis.props.state_manager.new()
+
+		@contextmanager
+		def ctx(self):
+			with self.sess.graph.as_default():
+				init = tf.global_variables_initializer()
+			with self.sess.as_default() as ctx:
+				self.sess.run(init)
+				yield ctx
 
 		def test_inputs(self):
 			ai = self.agnt.i
@@ -22,21 +49,40 @@ class Supress(object):
 			self.assertEqual(self.agnt.di, expected_di)
 
 		def test_eval(self):
-			with tf.Session() as sess:
-				sess.run(tf.global_variables_initializer())
+			with self.ctx():
 				agent_result = self.agnt.run(0, [[.1, .2]])
 				selections = agent_result[0]
 				self.assertTrue(
 					isinstance(selections, np.ndarray) and
-					selections.dtype == np.int32 and selections.shape == (1, 2)
+					selections.dtype == np.int32 and
+					selections.shape == (1, 2)
 				)
+				self.assertTrue(agent_result[1].shape == (1, 4) and
+								agent_result[1].dtype == np.float64)
+
+		def get_graph_params(self):
+			raise NotImplementedError
+
+	class TestPlaceholderStateHierarchicalBase(TestHierarchicalBase):
+		__slots__ = 'state_tensor', 'agnt', 'hypo'
+
+		def get_graph_params(self):
+			raise NotImplementedError
+
+		def test_state_update(self):
+			# TODO Make sandblox handle global variable initialization
+			with self.ctx():
+				old_state = self.agnt.state
+				agent_result = self.agnt.run(0, [[.1, .2]])
 				self.assertEqual(agent_result[1].shape, (1, 4))
+				# State should be updated: Small possibility of a false negative here
+				self.assertTrue(not np.alltrue(np.equal(self.agnt.state, old_state)))
 
 
-@tf_function(default_props=Props(state_manager=StateManager([4])))
+@tf_function(default_props=Props(state_manager=TFStateManager([4], np.float64)))
 def dense_hypothesis(ob, state):
 	logits = tf.layers.dense(ob, 2)
-	next_state = tf.layers.dense(state, 4)
+	next_state = tf.layers.dense(state, 4, name='next_state')
 	return Out.logits(logits).state(next_state)
 
 
@@ -67,41 +113,14 @@ def agent(selected_index, selectors, hypothesis) -> StatefulTFFunction:
 	return agent_logic(selected_index, selectors, hypothesis)
 
 
-def build_hypothesis(state_tensor, scope_name):
-	return dense_hypothesis(tf.placeholder(tf.float32, [None, 2], 'ob'), state_tensor,
-							props=Props(scope_name=scope_name))
+class TestPlaceholderStateBlockHierarchy(Supress.TestPlaceholderStateHierarchicalBase):
+	def get_graph_params(self):
+		return dense_hypothesis.props.state_manager.new_placeholder(), agent
 
 
-def build_agent(agent_cls, hypothesis):
-	return agent_cls(
-		tf.placeholder(tf.float32, (), 'selected_index'),
-		[greedy, KGreedy(k=2)],
-		hypothesis
-	)
-
-
-class TestPlaceholderStateHierarchicalBlock(Supress.TestHierarchicalBase):
-	state_tensor = dense_hypothesis.props.state_manager.new_placeholder()
-	hypo = build_hypothesis(state_tensor, 'placeholder_hypothesis')
-	agnt = build_agent(agent, hypo)
-	agnt.state = dense_hypothesis.props.state_manager.new()
-
-	def test_state_update(self):
-		with tf.Session() as sess:
-			# TODO Make sandblox handle global variable initialization
-			sess.run(tf.global_variables_initializer())
-			old_state = self.agnt.state
-			agent_result = self.agnt.run(0, [[.1, .2]])
-			self.assertEqual(agent_result[1].shape, (1, 4))
-			# State should be updated: Small possibility of a false failure here
-			self.assertTrue(
-				not np.alltrue(np.equal(self.agnt.state, old_state)))
-
-
-class TestVariableStateHierarchicalBlock(Supress.TestHierarchicalBase):
-	state_tensor = dense_hypothesis.props.state_manager.new_variable()
-	hypo = build_hypothesis(state_tensor, 'variable_hypothesis2')
-	agnt = build_agent(agent, hypo)
+class TestVariableStateBlockHierarchy(Supress.TestHierarchicalBase):
+	def get_graph_params(self):
+		return dense_hypothesis.props.state_manager.new_variable(), agent
 
 
 @stateful_tf_function(dense_hypothesis.props.state_manager)
@@ -109,25 +128,11 @@ def default_state_manager_agent(selected_index, selectors, hypothesis) -> Statef
 	return agent_logic(selected_index, selectors, hypothesis)
 
 
-class TestPlaceholderDefaultStateManagerHierarchicalBlock(Supress.TestHierarchicalBase):
-	state_tensor = dense_hypothesis.props.state_manager.new_placeholder()
-	hypo = build_hypothesis(state_tensor, 'placeholder_hypothesis2')
-	agnt = build_agent(default_state_manager_agent, hypo)
-	agnt.state = dense_hypothesis.props.state_manager.new()
-
-	def test_state_update(self):
-		with tf.Session() as sess:
-			# TODO Make sandblox handle global variable initialization behind the scenes
-			sess.run(tf.global_variables_initializer())
-			old_state = self.agnt.state
-			agent_result = self.agnt.run(0, [[.1, .2]])
-			self.assertEqual(agent_result[1].shape, (1, 4))
-			# State should be updated: Small possibility of a false failure here
-			self.assertTrue(
-				not np.alltrue(np.equal(self.agnt.state, old_state)))
+class TestPlaceholderDefaultStateManagerBlockHierarchy(Supress.TestPlaceholderStateHierarchicalBase):
+	def get_graph_params(self):
+		return dense_hypothesis.props.state_manager.new_placeholder(), default_state_manager_agent
 
 
-class TestVariableDefaultStateManagerHierarchicalBlock(Supress.TestHierarchicalBase):
-	state_tensor = dense_hypothesis.props.state_manager.new_variable()
-	hypo = build_hypothesis(state_tensor, 'variable_hypothesis')
-	agnt = build_agent(default_state_manager_agent, hypo)
+class TestVariableDefaultStateManagerBlockHierarchy(Supress.TestHierarchicalBase):
+	def get_graph_params(self):
+		return dense_hypothesis.props.state_manager.new_variable(), default_state_manager_agent
