@@ -1,4 +1,4 @@
-from typing import Type, Callable
+from typing import Type, Callable, List
 
 import numpy as np
 
@@ -29,7 +29,7 @@ class StateManager(object):
 
 
 class TFStateManager(StateManager):
-	def __init__(self, shape, dtype=np.float32, *args, **kwargs):
+	def __init__(self, shape: List, dtype=np.float32, *args, **kwargs):
 		super(TFStateManager, self).__init__(*args, **kwargs)
 		self._shape = shape
 		self._dtype = dtype

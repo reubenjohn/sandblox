@@ -493,28 +493,40 @@ class _Function(object):
 	def set_session(self, sess: tf.Session):
 		self._sess = sess
 
+	# TODO Add tests for below assertions
 	def __call__(self, *args, **kwargs):
-		assert len(args) <= len(self.inputs), "Too many arguments provided"
+		assert len(args) <= len(self.inputs), 'Too many arguments provided'
+		remaining_inputs = set(self.inputs)
 		feed_dict = {}
+		# Update feed dict with givens.
+		feed_dict.update(self.givens)
+		remaining_inputs = remaining_inputs - set(self.givens.keys())
+
 		# Update the args
-		for inpt, value in zip(self.inputs, args):
+		assert len(args) <= len(remaining_inputs), \
+			'Too many actual parameters passed %d: %s\n' \
+			'This is because only %d formal parameters remain: %s\n' \
+			'after populating %d givens: %s' % (
+				len(args), str(args), len(remaining_inputs), remaining_inputs, len(self.givens), str(self.givens))
+		for inpt, value in zip(remaining_inputs, args):
 			self._feed_input(feed_dict, inpt, value)
+		remaining_inputs = list(remaining_inputs)[len(args):]
+
 		# Update the kwargs
 		kwargs_passed_inpt_names = set()
-		for inpt in self.inputs[len(args):]:
+		for inpt in remaining_inputs:
 			inpt_name = inpt.name.split(':')[0]
 			inpt_name = inpt_name.split('/')[-1]
 			assert inpt_name not in kwargs_passed_inpt_names, \
 				"this function has two arguments with the same name \"{}\", so kwargs cannot be used.".format(inpt_name)
-			if inpt_name in kwargs:
-				kwargs_passed_inpt_names.add(inpt_name)
-				self._feed_input(feed_dict, inpt, kwargs.pop(inpt_name))
-			else:
-				assert inpt in self.givens, "Missing argument " + inpt_name
-		assert len(kwargs) == 0, "Function got extra arguments " + str(list(kwargs.keys()))
-		# Update feed dict with givens.
-		for inpt in self.givens:
-			feed_dict[inpt] = feed_dict.get(inpt, self.givens[inpt])
+			assert inpt_name in kwargs, "Required input with name '{}' among required inputs {}\n" \
+										"could not be inferred from:\n" \
+										"1. givens:  {}\n" \
+										"2. args: {},\n" \
+										"3. kwargs: {}".format(inpt_name, self.inputs, args, kwargs, self.givens)
+			kwargs_passed_inpt_names.add(inpt_name)
+			self._feed_input(feed_dict, inpt, kwargs.pop(inpt_name))
+		assert len(kwargs) == 0, "Function got extra keyword arguments " + str(list(kwargs.keys()))
 		results = self.sess.run(self.outputs_update, feed_dict=feed_dict, options=self.options,
 								run_metadata=self.run_metadata)[:-1]
 		self.options = None
