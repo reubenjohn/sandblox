@@ -180,9 +180,12 @@ class Suppress(object):
 				block.run(100)
 				block.set_session(tf.Session())
 				self.assertNotEqual(block.sess, sess)
-				with self.assertRaises(AssertionError) as bad_foo_context:
+				with self.assertRaises(RuntimeError) as ctx:
+					block.run(100)
+				self.assertTrue('graph is empty' in str(ctx.exception))
+				with self.assertRaises(AssertionError) as ctx:
 					self.create_block_ob(session='some_invalid_session')
-				self.assertTrue('must be of type tf.Session' in str(bad_foo_context.exception))
+				self.assertTrue('must be of type tf.Session' in str(ctx.exception))
 
 		def test_variable_assignment(self):
 			with tf.Graph().as_default():
