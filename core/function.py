@@ -53,13 +53,17 @@ class TFFunction(Function):
 		super(TFFunction, self).__init__(**default_props)
 		sess = self.props.__dict__.get('session', None)
 		assert sess is None or isinstance(sess, tf.Session), 'Specified session must be of type tf.Session'
-		self.props.__dict__['session'] = sess
 		self.props.session = sess
 
 	def __call__(self, *args, **kwargs):
 		block = super(TFFunction, self).__call__(*args, **kwargs)
-		block.built_fn = U.function(block.di, block.oz, session=block.props.session)
+		with block.graph.as_default():
+			block.built_fn = U.function(block.di, block.oz, session=block.props.session)
 		return block
+
+	def build_graph(self, *args, **kwargs):
+		with self.graph.as_default():
+			return super(TFFunction, self).build_graph(*args, **kwargs)
 
 	def build(self, *args, **kwargs):
 		raise NotImplementedError
@@ -68,6 +72,10 @@ class TFFunction(Function):
 		self.props.session = session
 		if self.built_fn is not None:
 			self.built_fn.set_session(session)
+
+	@property
+	def graph(self):
+		return self.sess.graph if self.sess is not None else tf.get_default_graph()
 
 	@property
 	def sess(self):
@@ -80,7 +88,7 @@ class TFFunction(Function):
 
 	def process_inputs(self, *args, **kwargs):
 		super(TFFunction, self).process_inputs(*args, **kwargs)
-		if not self.is_dynamic():
+		if not self.is_dynamic():  # TODO Why this check?
 			self.built_fn.givens = self.get_all_givens()
 			self.built_fn.using(self.options, self.run_metadata)
 

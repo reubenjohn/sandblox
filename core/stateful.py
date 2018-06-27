@@ -55,11 +55,20 @@ class TFStateManager(StateManager):
 		return tf.assign(dest_state, src_state)
 
 
-class DynamicStateBinder(object):
+class State(object):
+	def __init__(self, prev, state_manager: StateManager, next):
+		self.prev, self.state_manager, self.next = prev, state_manager, next
+
+	@property
+	def static_val(self):
+		return self.prev
+
+
+class DynamicStateBinder(State):
 	def __init__(self, output_index, prev, state_manager: StateManager, next):
+		super(DynamicStateBinder, self).__init__(prev, state_manager, next)
 		self.is_d_inp = True
 		self.dynamic_output_index = output_index
-		self.prev, self.state_manager, self.next = prev, state_manager, next
 		self.dynamic_val = state_manager.new()
 
 
@@ -88,6 +97,7 @@ class StatefulTFFunction(TFFunction):
 				if is_dynamic_arg(prev_op):
 					self.states[key] = DynamicStateBinder(index, prev_op, state_manager, next_op)
 				else:
+					self.states[key] = State(prev_op, state_manager, next_op)
 					dependencies = out.oz
 					with tf.control_dependencies(dependencies):
 						next_op = state_manager.assign(prev_op, next_op)

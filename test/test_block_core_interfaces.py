@@ -1,17 +1,18 @@
 import time
-from typing import List, Type
+from typing import Type
 from unittest import TestCase
 
 import tensorflow as tf
 
 import sandblox as sx
+import sandblox.util.tf_util as U
 
 
 class FooLogic(object):
 	call_cache = dict()
-	di = [tf.placeholder(tf.float32, (), 'y')]
+	di = [sx.LateBoundArg(lambda: tf.placeholder(tf.float32, (), 'y'))]
 	# TODO Have variables initialized for each call
-	args = [tf.ones((), tf.float32), di[0]]
+	args = [sx.LateBoundArg(lambda: tf.ones((), tf.float32)), di[0]]
 	kwargs = dict(extra=10)
 
 	@staticmethod
@@ -20,9 +21,9 @@ class FooLogic(object):
 		return fn(*FooLogic.args, **expansion)
 
 	@staticmethod
-	def internal_args_call(fn, **expansion):
+	def resolved_args_call(fn, **expansion):
 		expansion.update(FooLogic.kwargs)
-		return fn(0, *FooLogic.args, **expansion)
+		return fn(*sx.resolve(*FooLogic.args), **expansion)
 
 	@staticmethod
 	def call(x, y, param_with_default=-5, **kwargs):
@@ -105,8 +106,8 @@ class Suppress(object):
 		def __init__(self, method_name: str = 'runTest'):
 			super(Suppress.TestBlockBase, self).__init__(method_name)
 			with tf.variable_scope(self.block_foo_ob.scope.rel, reuse=True):
-				self.bound_flattened_logic_args = FooLogic.args_call(sx.U.FlatArgumentsBinder(FooLogic.call))
-				self.logic_outs = list(FooLogic.args_call(FooLogic.call))
+				self.bound_flattened_logic_args = sx.bind_resolved(FooLogic.call, *FooLogic.args, **FooLogic.kwargs)
+				self.logic_outs = list(FooLogic.resolved_args_call(FooLogic.call))
 
 			self.options = tf.RunOptions()
 			self.options.output_partition_graphs = True
@@ -116,24 +117,20 @@ class Suppress(object):
 			self.assertEqual(self.block_foo_ob.i.__dict__, self.bound_flattened_logic_args)
 
 		def test_block_dynamic_inputs(self):
-			self.assertEqual(self.block_foo_ob.di, FooLogic.di)
+			self.assertEqual(self.block_foo_ob.di, [sx.resolve(*FooLogic.di)])
 
-		@staticmethod
-		def core_op_name(op) -> str:
-			return op.name.split('/')[-1]
-
-		@staticmethod
-		def core_op_names(ops) -> List[str]:
-			return list(map(Suppress.TestBlockBase.core_op_name, ops))
+		def assertEqual(self, first, second, msg=None):
+			first, second = U.core_op_name(first), U.core_op_name(second)
+			super(Suppress.TestBlockBase, self).assertEqual(first, second, msg)
 
 		def test_block_out(self):
-			self.assertEqual(self.core_op_name(self.block_foo_ob.o.a), self.core_op_name(self.logic_outs[1]))
-			self.assertEqual(self.core_op_name(self.block_foo_ob.o.b), self.core_op_name(self.logic_outs[0]))
+			self.assertEqual(U.core_op_name(self.block_foo_ob.o.a), U.core_op_name(self.logic_outs[1]))
+			self.assertEqual(U.core_op_name(self.block_foo_ob.o.b), U.core_op_name(self.logic_outs[0]))
 
 		def test_block_out_order(self):
-			self.assertEqual(self.core_op_names(self.block_foo_ob.oz), self.core_op_names(self.logic_outs))
+			self.assertEqual(U.core_op_name(self.block_foo_ob.oz), U.core_op_name(self.logic_outs))
 
-		def test_eval(self):
+		def test_run(self):
 			with tf.Session() as sess:
 				sess.run(tf.variables_initializer(self.block_foo_ob.get_variables()))
 				eval_100 = self.block_foo_ob.run(100)
@@ -145,7 +142,7 @@ class Suppress(object):
 				self.assertEqual(eval_100[0], eval_0[0] + 100)
 				self.assertNotEqual(eval_100[1], eval_0[1])  # Boy aren't you unlucky if you fail this test XD
 
-		def test_bad_foo_assertion(self):
+		def test_non_Out_return_assertion(self):
 			with self.assertRaises(AssertionError) as bad_foo_context:
 				with tf.Session(graph=tf.Graph()):
 					self.create_bad_block_ob(reuse=None)
@@ -172,11 +169,15 @@ class Suppress(object):
 			self.block_foo_ob.built_fn = built_fn
 
 		# TODO Test scope_name
+		# TODO Test is_built
 		def test_session_specification(self):
-			sess = tf.Session()
+			sess = tf.Session(graph=tf.Graph())
 			with tf.Session(graph=tf.Graph()):
 				block = self.create_block_ob(session=sess)
+				with sess.graph.as_default():
+					sess.run(tf.initialize_variables(block.get_variables()))
 				self.assertEqual(block.sess, sess)
+				block.run(100)
 				block.set_session(tf.Session())
 				self.assertNotEqual(block.sess, sess)
 				with self.assertRaises(AssertionError) as bad_foo_context:

@@ -4,6 +4,7 @@ import functools
 import inspect
 import os
 from collections import OrderedDict
+from typing import Union, Any, List, Dict
 
 import numpy as np
 import tensorflow as tf  # pylint: ignore-module
@@ -759,12 +760,44 @@ def fancy_slice_2d(X, inds0, inds1):
 	return tf.gather(Xflat, inds0 * ncols + inds1)
 
 
+def reduce_index(arr, idx, index: int = None):
+	if index is None:
+		index = idx.shape.ndims
+	arr_shape = tf.shape(arr)
+	inferred_arr_shape = [arr_shape[i] if dim.value is None else dim.value for i, dim in enumerate(arr.shape.dims)]
+	arr_index_dim_val = inferred_arr_shape.pop(index)
+
+	if not idx.dtype.is_integer:
+		idx = tf.cast(idx, tf.int32, 'cast_indices')
+
+	perm = list(range(arr.shape.ndims))
+	perm.pop(index)
+	perm = perm + [index]
+	arr_trans = tf.transpose(arr, perm)
+
+	arr_flat = tf.reshape(arr_trans, [-1, arr_index_dim_val])
+	idx_flat = tf.reshape(idx, [-1])
+	idx_nd = tf.stack([tf.range(0, tf.shape(arr_flat)[0]), idx_flat], axis=1)
+
+	arr_flat_indexed = tf.gather_nd(arr_flat, idx_nd, name='indexed_elements')
+	return tf.reshape(arr_flat_indexed, inferred_arr_shape)
+
+
 # ================================================================
 # Scopes
 # ================================================================
 
 TFGraphKeys = [val for key, val in zip(tf.GraphKeys.__dict__.keys(), tf.GraphKeys.__dict__.values()) if
 			   isinstance(val, str) and '__' not in key]
+
+
+def core_op_name(op) -> Union[Any, List[Any], Dict[Any, Any]]:
+	if isinstance(op, list):
+		return list(map(core_op_name, op))
+	elif isinstance(op, dict):
+		return dict((key, core_op_name(value)) for key, value in op.items())
+	elif isinstance(op, tf.Tensor):
+		return op.name.split('/')[-1].split(':')[0].split('_')[0]
 
 
 def scope_vars(scope, trainable_only=False):

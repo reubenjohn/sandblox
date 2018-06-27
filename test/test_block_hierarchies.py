@@ -6,12 +6,16 @@ from sandblox import *
 
 # TODO Handle default and implicit dynamic_val management
 # TODO Lifecycle that fuses dynamic_val & static graph based computing
-class Supress(object):
+class Suppress(object):
 	class TestHierarchicalBase(TestCase):
 		__slots__ = 'state_tensor', 'mean_selector', 'hypo'
 
+		def assertEqual(self, first, second, msg=None):
+			first, second = U.core_op_name(first), U.core_op_name(second)
+			super(Suppress.TestHierarchicalBase, self).assertEqual(first, second, msg)
+
 		def setUp(self):
-			super(Supress.TestHierarchicalBase, self).setUp()
+			super(Suppress.TestHierarchicalBase, self).setUp()
 			self.sess = tf.Session(graph=tf.Graph())
 			with self.sess.graph.as_default():
 				self.setUp_graph(*self.get_graph_params())
@@ -111,12 +115,12 @@ def accumulator_mean_selector(selected_index, mean_evaluators, hypothesis) -> St
 		(hypothesis.i.accumulator, hypothesis.props.state_manager, hypothesis.o.accumulator))
 
 
-class TestPlaceholderStateBlockHierarchy(Supress.TestPlaceholderStateHierarchicalBase):
+class TestPlaceholderStateBlockHierarchy(Suppress.TestPlaceholderStateHierarchicalBase):
 	def get_graph_params(self):
 		return offset_accumulator.props.state_manager.new_placeholder(), accumulator_mean_selector
 
 
-class TestVariableStateBlockHierarchy(Supress.TestHierarchicalBase):
+class TestVariableStateBlockHierarchy(Suppress.TestHierarchicalBase):
 	def get_graph_params(self):
 		return offset_accumulator.props.state_manager.new_variable(), accumulator_mean_selector
 
@@ -127,11 +131,11 @@ def default_state_accumulator_mean_selector(selected_index, mean_evaluators, hyp
 	return Out.mean(selected_op).accumulator((hypothesis.i.accumulator, hypothesis.o.accumulator))
 
 
-class TestPlaceholderDefaultStateManagerBlockHierarchy(Supress.TestPlaceholderStateHierarchicalBase):
+class TestPlaceholderDefaultStateManagerBlockHierarchy(Suppress.TestPlaceholderStateHierarchicalBase):
 	def get_graph_params(self):
 		return offset_accumulator.props.state_manager.new_placeholder(), default_state_accumulator_mean_selector
 
 
-class TestVariableDefaultStateManagerBlockHierarchy(Supress.TestHierarchicalBase):
+class TestVariableDefaultStateManagerBlockHierarchy(Suppress.TestHierarchicalBase):
 	def get_graph_params(self):
 		return offset_accumulator.props.state_manager.new_variable(), default_state_accumulator_mean_selector
