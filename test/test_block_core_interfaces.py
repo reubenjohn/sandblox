@@ -218,7 +218,7 @@ class Suppress(object):
 					self.assertTrue(sess.run(eq_op))
 
 
-# Three ways to create a good block:
+# Three ways to create a block:
 
 class TestBlockFunction(Suppress.TestBlockBase):
 	target = foo

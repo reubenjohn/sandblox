@@ -4,6 +4,8 @@ from sandblox.util import tf_util as U
 from sandblox.util.scope import *
 
 
+# THIS FILE IS DEPRECATED AND WILL BE REMOVED IN A FUTURE RELEASE
+
 class TFObject(object):
 	scope = UninitializedScope()
 
