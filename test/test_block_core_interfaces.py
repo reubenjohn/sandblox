@@ -111,7 +111,6 @@ class Suppress(object):
 
 			self.options = tf.RunOptions()
 			self.options.output_partition_graphs = True
-			self.options.trace_level = tf.RunOptions.FULL_TRACE
 
 		def test_block_inputs(self):
 			self.assertEqual(self.block_foo_ob.i.__dict__, self.bound_flattened_logic_args)
@@ -219,6 +218,8 @@ class Suppress(object):
 					self.assertTrue(sess.run(eq_op))
 
 
+# Three ways to create a good block:
+
 class TestBlockFunction(Suppress.TestBlockBase):
 	target = foo
 	bad_target = bad_foo
@@ -229,9 +230,6 @@ class TestBlockFunction(Suppress.TestBlockBase):
 
 	def create_bad_block_ob(self, **props) -> sx.BlockBase:
 		return FooLogic.args_call(TestBlockFunction.bad_target, props=sx.Props(**props))
-
-	def __init__(self, method_name: str = 'runTest'):
-		super(TestBlockFunction, self).__init__(method_name)
 
 
 class TestBlockClass(Suppress.TestBlockBase):
