@@ -94,7 +94,7 @@ class StatefulTFFunction(TFFunction):
 					raise ValueError('Unexpected tuple of length: %d' % len(output))
 
 				out.__getattr__(key)(next_op)
-				if is_dynamic_arg(prev_op):
+				if is_dynamic_input(prev_op):
 					self.states[key] = DynamicStateBinder(index, prev_op, state_manager, next_op)
 				else:
 					self.states[key] = State(prev_op, state_manager, next_op)
@@ -110,7 +110,7 @@ class StatefulTFFunction(TFFunction):
 
 	@property
 	def dynamic_states(self):
-		return [state for state in [self.states[key] for key in self.states] if is_dynamic_arg(state)]
+		return [state for state in [self.states[key] for key in self.states] if is_dynamic_input(state)]
 
 	def get_my_givens(self):
 		binds = super(StatefulTFFunction, self).get_my_givens()

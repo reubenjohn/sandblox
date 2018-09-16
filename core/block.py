@@ -17,7 +17,7 @@ class NotBuiltError(AssertionError):
 			msg = msg + ': ' + str(self.block)
 			super(NotBuiltError, self).__init__(msg, *args)
 		else:
-			msg = 'Block "{}" has not yet been built'.format(self.block)
+			msg = 'Block "{}" has not been built'.format(self.block)
 			super(NotBuiltError, self).__init__(msg)
 
 
@@ -34,11 +34,11 @@ def resolve(*args):
 	return resolved if len(resolved) > 1 else resolved[0]
 
 
-def flattened_dynamic_arguments(inps: dict) -> list:
+def flattened_dynamic_inputs(inps: dict) -> list:
 	result = []
 	for key in inps:
 		inp = inps[key]
-		if is_dynamic_arg(inp):
+		if is_dynamic_input(inp):
 			result.append(resolve(inp))
 		elif isinstance(inp, BlockBase):
 			if not inp.is_built():
@@ -99,7 +99,7 @@ class BlockBase(object):
 		input_args = bind_resolved(self.build, *args, **kwargs)
 		i = DictAttrs(**input_args)
 		iz = list(input_args.values())
-		di = flattened_dynamic_arguments(input_args)
+		di = flattened_dynamic_inputs(input_args)
 		return i, iz, di, input_args
 
 	def build_wrapper(self, *args, **kwargs) -> BlockOutsBase:

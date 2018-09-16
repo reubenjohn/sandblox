@@ -20,12 +20,12 @@ class Suppress(object):
 			with self.sess.graph.as_default():
 				self.setUp_graph(*self.get_graph_params())
 
-		def setUp_graph(self, state_tensor, accumulator_mean_selector_cls):
+		def setUp_graph(self, state_tensor, accumulate_selected_mean_cls):
 			self.state_tensor = state_tensor
-			self.mean_selector = accumulator_mean_selector_cls(
-				tf.placeholder(tf.float32, [None], 'selected_index'),
-				[reduce_mean, MapReduceMean(func=lambda x: x * x)],
-				offset_accumulator(
+			self.mean_selector = accumulate_selected_mean_cls(
+				selected_index=tf.placeholder(tf.float32, [None], 'selected_index'),
+				mean_evaluators=[MeanEvaluators.reduce_mean, MeanEvaluators.MapReduceMean(func=lambda x: x * x)],
+				stateful_input=increase_input(
 					tf.placeholder(tf.float32, [None, 2], 'offset'),
 					state_tensor,
 					props=Props(scope_name='hypo')
@@ -43,11 +43,11 @@ class Suppress(object):
 
 		def test_inputs(self):
 			ai = self.mean_selector.i
-			self.assertEqual(self.mean_selector.iz, [ai.selected_index, ai.mean_evaluators, ai.hypothesis])
-			hi = ai.hypothesis.i
+			self.assertEqual(self.mean_selector.iz, [ai.selected_index, ai.mean_evaluators, ai.stateful_input])
+			hi = ai.stateful_input.i
 			expected_di = [ai.selected_index, hi.offset]
-			if is_dynamic_arg(self.state_tensor):
-				expected_di.append(hi.accumulator)
+			if is_dynamic_input(self.state_tensor):
+				expected_di.append(hi.accumulation)
 			self.assertEqual(self.mean_selector.di, expected_di)
 
 		def test_eval(self):
@@ -74,9 +74,9 @@ class Suppress(object):
 		def test_state_update(self):
 			# TODO Make sandblox handle global variable initialization
 			with self.ctx():
-				self.assertEqual(self.mean_selector.states.accumulator.dynamic_val.shape, (1, 2))
-				batch_accumulator_shape = self.mean_selector.states.accumulator.state_manager.batch_shape(2)
-				self.mean_selector.states.accumulator.dynamic_val = np.zeros(batch_accumulator_shape)
+				self.assertEqual(self.mean_selector.states.accumulation.dynamic_val.shape, (1, 2))
+				batch_accumulator_shape = self.mean_selector.states.accumulation.state_manager.batch_shape(2)
+				self.mean_selector.states.accumulation.dynamic_val = np.zeros(batch_accumulator_shape)
 				agent_result = self.mean_selector.run([0, 1], [[0, 2], [0, 2]])
 				means = agent_result[0]
 				new_states = agent_result[1]
@@ -85,57 +85,59 @@ class Suppress(object):
 
 
 @tf_function(default_props=Props(state_manager=TFStateManager([2], np.float32)))
-def offset_accumulator(offset, accumulator):
-	next_state = accumulator + offset
-	return Out.offset(offset).accumulator(next_state)
+def increase_input(offset, accumulation):
+	next_state = accumulation + offset
+	return Out.offset(offset).accumulation(next_state)
 
 
-@tf_function
-def reduce_mean(elems):
-	return Out.mean(tf.reduce_mean(elems, axis=1))  # Just to have the dimensions match with k_greedy = 2
+class MeanEvaluators:
+	@staticmethod
+	@tf_function
+	def reduce_mean(elems):
+		return Out.mean(tf.reduce_mean(elems, axis=1))
+
+	class MapReduceMean(TFFunction):
+		def build(self, elems):
+			mapped = tf.map_fn(self.props.func, elems)
+			return Out.mean(tf.reduce_mean(mapped, axis=1))
 
 
-class MapReduceMean(TFFunction):
-	def build(self, elems):
-		mapped = tf.map_fn(self.props.func, elems)
-		return Out.mean(tf.reduce_mean(mapped, axis=1))
-
-
-def select_and_evaluate_mean(selected_index, mean_evaluators, hypothesis) -> Out:
-	means = [selector(hypothesis.o.offset).o.mean for selector in mean_evaluators]
+def evaluate_selected_mean(selected_index, mean_evaluators, stateful_input) -> Out:
+	means = [mean_evaluator(stateful_input.o.offset).o.mean for mean_evaluator in mean_evaluators]
 	cast_indices = tf.cast(selected_index, tf.int32, 'cast_indices')
 	selected_op = tf.gather(means, cast_indices, name='indexed_elements')[:, 0]
 	return selected_op
 
 
 @stateful_tf_function(None)
-def accumulator_mean_selector(selected_index, mean_evaluators, hypothesis) -> StatefulTFFunction:
-	selected_op = select_and_evaluate_mean(selected_index, mean_evaluators, hypothesis)
-	return Out.mean(selected_op).accumulator(
-		(hypothesis.i.accumulator, hypothesis.props.state_manager, hypothesis.o.accumulator))
+def accumulate_selected_mean(selected_index, mean_evaluators, stateful_input) -> StatefulTFFunction:
+	mean = evaluate_selected_mean(selected_index, mean_evaluators, stateful_input)
+	return Out.mean(mean).accumulation(
+		(stateful_input.i.accumulation, stateful_input.props.state_manager, stateful_input.o.accumulation))
 
 
 class TestPlaceholderStateBlockHierarchy(Suppress.TestPlaceholderStateHierarchicalBase):
 	def get_graph_params(self):
-		return offset_accumulator.props.state_manager.new_placeholder(), accumulator_mean_selector
+		return increase_input.props.state_manager.new_placeholder(), accumulate_selected_mean
 
 
 class TestVariableStateBlockHierarchy(Suppress.TestHierarchicalBase):
 	def get_graph_params(self):
-		return offset_accumulator.props.state_manager.new_variable(), accumulator_mean_selector
+		return increase_input.props.state_manager.new_variable(), accumulate_selected_mean
 
 
-@stateful_tf_function(offset_accumulator.props.state_manager)
-def default_state_accumulator_mean_selector(selected_index, mean_evaluators, hypothesis) -> StatefulTFFunction:
-	selected_op = select_and_evaluate_mean(selected_index, mean_evaluators, hypothesis)
-	return Out.mean(selected_op).accumulator((hypothesis.i.accumulator, hypothesis.o.accumulator))
+@stateful_tf_function(increase_input.props.state_manager)
+def accumulate_selected_mean_with_default_state_manager(selected_index, mean_evaluators,
+														stateful_input) -> StatefulTFFunction:
+	mean = evaluate_selected_mean(selected_index, mean_evaluators, stateful_input)
+	return Out.mean(mean).accumulation((stateful_input.i.accumulation, stateful_input.o.accumulation))
 
 
 class TestPlaceholderDefaultStateManagerBlockHierarchy(Suppress.TestPlaceholderStateHierarchicalBase):
 	def get_graph_params(self):
-		return offset_accumulator.props.state_manager.new_placeholder(), default_state_accumulator_mean_selector
+		return increase_input.props.state_manager.new_placeholder(), accumulate_selected_mean_with_default_state_manager
 
 
 class TestVariableDefaultStateManagerBlockHierarchy(Suppress.TestHierarchicalBase):
 	def get_graph_params(self):
-		return offset_accumulator.props.state_manager.new_variable(), default_state_accumulator_mean_selector
+		return increase_input.props.state_manager.new_variable(), accumulate_selected_mean_with_default_state_manager
