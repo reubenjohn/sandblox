@@ -1,25 +1,12 @@
 from collections import OrderedDict
-from typing import Any, Callable
+from typing import Callable
 
+import sandblox.errors
 from sandblox.core.io import *
 from sandblox.core.io import BlockOutsBase
 from sandblox.util import *
 
 python_less_than_3_3 = sys.version_info[0] < 3 and sys.version_info[1] < 3
-
-
-class NotBuiltError(AssertionError):
-	def __init__(self, *args: Any, block=None) -> None:
-		self.block = block
-		if len(args) > 0:
-			msg = args[0]
-			args = args[1:]
-			msg = msg + ': ' + str(self.block)
-			super(NotBuiltError, self).__init__(msg, *args)
-		else:
-			msg = 'Block "{}" has not been built'.format(self.block)
-			super(NotBuiltError, self).__init__(msg)
-
 
 class LateBoundArg(object):
 	def __init__(self, resolver: Callable):
@@ -42,7 +29,7 @@ def flattened_dynamic_inputs(inps: dict) -> list:
 			result.append(resolve(inp))
 		elif isinstance(inp, BlockBase):
 			if not inp.is_built():
-				raise NotBuiltError(block=inp)
+				raise sandblox.errors.NotBuiltError(block=inp)
 			result.extend(inp.di)
 	return result
 

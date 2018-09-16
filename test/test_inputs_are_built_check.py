@@ -1,3 +1,4 @@
+from typing import Callable, Union, Any
 from unittest import TestCase
 
 import tensorflow as tf
@@ -18,11 +19,11 @@ def square(calculator):
 class TestInputsAreBuiltCheck(TestCase):
 	def test_inputs_are_built_check(self):
 		with tf.Session(graph=tf.Graph()) as sess:
-			adder = Adder()
+			adder = Adder()  # type: Union[Any, Callable]
 			adder_a_b = adder(1, 2)
 			square_a_plus_b = square(adder_a_b)
 			self.assertEqual(9, sess.run(square_a_plus_b.o.result))
 
-			with self.assertRaises(sx.NotBuiltError) as ctx:
+			with self.assertRaises(sx.errors.NotBuiltError) as ctx:
 				square(adder)
 			self.assertTrue('not been built' in str(ctx.exception))
