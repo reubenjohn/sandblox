@@ -41,7 +41,7 @@ Out = DictAttrBuilderFactory(BlockOutsAttrs) if sys.version_info[0] < 3 or (
 Props = DictAttrs  # Don't need DictAttrBuilderFactory since prop order does not need to be maintained
 
 
-# TODO Add tests for dynamic arg concept
+# TODO Add test for dynamic arg concept
 def dynamic(*args):
 	for arg in args:
 		arg.is_d_inp = True

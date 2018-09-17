@@ -494,7 +494,7 @@ class _Function(object):
 	def set_session(self, sess: tf.Session):
 		self._sess = sess
 
-	# TODO Add tests for below assertions
+	# TODO Add test for below assertions
 	def __call__(self, *args, **kwargs):
 		assert len(args) <= len(self.inputs), 'Too many arguments provided'
 		remaining_inputs = set(self.inputs)
