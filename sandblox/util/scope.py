@@ -1,3 +1,5 @@
+from typing import Any
+
 import tensorflow as tf
 
 from .tf_util import scope_name as get_scope_name
@@ -23,18 +25,22 @@ def infer_abs_scope_name(self, scope_name: str = None):
 
 
 class Scope(object):
-	def __init__(self, obj, scope_name: str):
+	def __init__(self, scope_name: str, obj: Any = None):
 		self.rel = self.abs = None
-		self.setup(obj, scope_name)
+		self.setup(scope_name, obj)
 
-	def setup(self, obj, scope_name: str = None):
-		self.rel = infer_rel_scope_name(obj, scope_name)
+	def setup(self, scope_name: str, obj: Any = None):
+		if scope_name is None:
+			assert obj is not None, 'Must provide either scope_name or a reference object to infer scope_name'
+			scope_name = type(obj).__name__
+		self.rel = scope_name
 		self.abs = absolute_scope_name(self.rel)
 
 	def make_unique(self, graph=None):
 		if graph is None:
 			graph = tf.get_default_graph()
-		graph.unique_name(self.rel)
+		self.rel = graph.unique_name(self.rel)
+		self.setup(self.rel)
 
 	@property
 	def exact_rel_pattern(self) -> str:

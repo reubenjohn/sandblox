@@ -11,12 +11,12 @@ class TFObject(object):
 
 	def __init__(self, scope_name: str = None, **kwargs):
 		if isinstance(self.scope, UninitializedScope):
-			self.scope = Scope(self, scope_name)
+			self.scope = Scope(scope_name, self)
 		# noinspection PyArgumentList
 		super(TFObject, self).__init__(**kwargs)
 
 	def setup_scope(self, scope_name):
-		self.scope = Scope(self, scope_name)
+		self.scope = Scope(scope_name, self)
 
 
 class InpOutBase(object):

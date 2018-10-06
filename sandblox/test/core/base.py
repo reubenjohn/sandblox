@@ -128,7 +128,6 @@ class Suppressed(object):
 				block1 = self.create_block_ob(scope_name='reuse_me')
 				block2 = self.create_block_ob(scope_name='reuse_me', reuse=True)
 				vars1 = block1.get_variables()
-				tf.get_collection(tf.GraphKeys.UPDATE_OPS, block1.scope.exact_abs_pattern)
 				vars2 = block2.get_variables()
 				init = tf.variables_initializer(vars1 + vars2)
 				eq_op = tf.equal(vars1, vars2)
@@ -139,6 +138,22 @@ class Suppressed(object):
 					sess.run(update_vars_1)
 					self.assertTrue(sess.run(eq_op))
 
+		def test_make_scope_unique(self):
+			with tf.Graph().as_default():
+				block1 = self.create_block_ob(scope_name='make_me_unique')
+				block2 = self.create_block_ob(scope_name='make_me_unique', make_scope_unique=True)
+				vars1 = block1.get_variables()
+				vars2 = block2.get_variables()
+				self.assertTrue([var1.name == var2.name for var1, var2 in zip(vars1, vars2)])
+				init = tf.variables_initializer(vars1 + vars2)
+				eq_op = tf.equal(vars1, vars2)
+				var1_eq_var2 = [tf.assign(var1, var2) for var1, var2 in zip(vars1, vars2)]
+				with tf.Session() as sess:
+					sess.run(init)
+					sess.run(var1_eq_var2)
+					self.assertTrue(sess.run(eq_op))
+					sess.run(init)
+					self.assertTrue(not sess.run(eq_op))
 
 def no_op_fn(*_args, **_kwargs):
 	return ()

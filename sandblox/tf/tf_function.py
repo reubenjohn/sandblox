@@ -3,9 +3,26 @@ from typing import Callable, Type, Union
 
 import tensorflow as tf
 
+from sandblox.core.context import StaticContext
 from sandblox.core.function import Props, fn_to_built_block
 from sandblox.core.mold import Mold
 from sandblox.util import tf_util as U
+
+
+class TFStaticContext(StaticContext):
+	def __init__(self, block):
+		super().__init__(block)
+		self.var_scope = tf.variable_scope(self.block.scope.rel, reuse=self.block.reuse_var_scope)
+
+	def __enter__(self, *args, **kwargs):
+		super().__enter__(*args, **kwargs)
+		self.var_scope.__enter__()
+		if len(self.block.get_all_ops(tf.get_variable_scope().name)) > 0:
+			print('WARNING: Building ops into pollute d name scope')  # TODO Implement DesignViolation here
+
+	def __exit__(self, *args, **kwargs):
+		super().__exit__()
+		self.var_scope.__exit__(*args, **kwargs)
 
 
 class TFMold(Mold):
@@ -18,25 +35,17 @@ class TFMold(Mold):
 		sess = self.props.__dict__.get('session', None)
 		assert sess is None or isinstance(sess, tf.Session), 'Specified session must be of type tf.Session'
 		self.props.session = sess
+		# TODO Test name collision when explicitly specified names for two blocks are the same, and the lack thereof
+		if default_props.get('make_scope_unique', not self.reuse_var_scope):
+			graph = default_props.get('graph', tf.get_default_graph())
+			assert graph is not None, 'Could not find a default graph, so a graph must be provided since make_scope_unique is True'
+			self.scope.make_unique(graph)
 
 	def __call__(self, *args, **kwargs):
 		block = super(TFMold, self).__call__(*args, **kwargs)
 		with block.graph.as_default():
 			block.built_fn = U.function(block.di, block.oz, session=block.props.session)
 		return block
-
-	def build_graph(self, *args, **kwargs):
-		with self.graph.as_default():
-			super(TFMold, self).build_graph(*args, **kwargs)
-			return self
-
-	def build(self, *args, **kwargs):
-		raise NotImplementedError
-
-	def set_session(self, session: tf.Session):
-		self.props.session = session
-		if self.built_fn is not None:
-			self.built_fn.set_session(session)
 
 	@property
 	def graph(self):
@@ -51,11 +60,30 @@ class TFMold(Mold):
 		else:
 			return U.get_session()
 
+	def static_context(self):
+		return TFStaticContext(self)
+
+	def build_graph(self, *args, **kwargs):
+		with self.graph.as_default():
+			super(TFMold, self).build_graph(*args, **kwargs)
+			return self
+
+	def build(self, *args, **kwargs):
+		raise NotImplementedError
+
+	def set_session(self, session: tf.Session):
+		self.props.session = session
+		if self.built_fn is not None:
+			self.built_fn.set_session(session)
+
 	def static_run(self, *args, **kwargs):
 		if self.built_fn:
 			self.built_fn.givens = self.get_all_givens()
 			self.built_fn.using(self.options, self.run_metadata)
 		return self.built_fn(*args, **kwargs)
+
+	def dynamic_run(self, dynamic_outputs, *args, **kwargs):
+		return super().dynamic_run(dynamic_outputs, *args, **kwargs)
 
 	def get_all_givens(self) -> dict:
 		givens = {}

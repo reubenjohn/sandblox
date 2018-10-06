@@ -1,10 +1,9 @@
 from inspect import signature
 
-import tensorflow as tf
-
 import sandblox.errors as errors
 from sandblox.constants.internal import python_less_than_3_3
 from sandblox.core.arg import resolve
+from sandblox.core.context import StaticContext
 from sandblox.core.io import Props, Out, is_dynamic_input
 from sandblox.core.io import bind_resolved, BlockOutsBase
 from sandblox.util.misc import DictAttrs
@@ -35,27 +34,12 @@ class Block(object):
 		self._is_built = False
 		self.i = self.o = self.iz = self.oz = self.di = self.built_fn = None
 		self.props = Props(**props_dict)
-		self.scope = Scope(self, props_dict.get('scope_name'))
+		self.scope = Scope(props_dict.get('scope_name'), self)
 		self.reuse_var_scope = props_dict.get('reuse', None)
-		# TODO Test name collision when explicitly specified names for two blocks are the same, and the lack thereof
-		if props_dict.get('make_scope_unique', True):
-			graph = props_dict.get('graph', tf.get_default_graph())
-			assert graph is not None, 'Could not find a default graph, so a graph must be provided since make_scope_unique is True'
-			self.scope.make_unique(graph)
 
-	def build_graph(self, *args, **kwargs):
-		self.i, self.iz, self.di, bound_args = self._bind(*args, **kwargs)
-
-		with tf.variable_scope(self.scope.rel, reuse=self.reuse_var_scope):
-			if len(self.get_all_ops(tf.get_variable_scope().name)) > 0:
-				print('WARNING: Building ops into pollute d name scope')  # TODO Implement DesignViolation here
-			out = self.build_wrapper(**bound_args)
-		self.o = out.o
-		self.oz = out.oz
-		self._is_built = True
-
-	def is_built(self):
-		return self._is_built
+	# TODO Add test case
+	def setup_scope(self, scope_name):
+		self.scope = Scope(scope_name, self)
 
 	@property
 	def is_dynamic(self):
@@ -74,9 +58,21 @@ class Block(object):
 			self._is_dynamic = True
 		return self.is_dynamic or any(b.is_dynamic for b in self.iz if isinstance(b, Block))
 
-	# TODO Add test case
-	def setup_scope(self, scope_name):
-		self.scope = Scope(self, scope_name)
+	def is_built(self):
+		return self._is_built
+
+	def static_context(self):
+		return StaticContext(self)
+
+	def build_graph(self, *args, **kwargs):
+		self.i, self.iz, self.di, bound_args = self._bind(*args, **kwargs)
+
+		with self.static_context():
+			out = self.build_wrapper(**bound_args)
+
+		self.o = out.o
+		self.oz = out.oz
+		self._is_built = True
 
 	def _bind(self, *args, **kwargs):
 		input_args = bind_resolved(self.build, *args, **kwargs)
@@ -104,12 +100,16 @@ class Block(object):
 	def run(self, *args, **kwargs):
 		dynamic_outputs = self.static_run(*args, **kwargs)
 		if self.is_dynamic:
-			dynamic_outputs = self.eval(dynamic_outputs, *args, **kwargs)
-			self.recurse_post_eval(dynamic_outputs)
+			dynamic_outputs = self.dynamic_run(dynamic_outputs, *args, **kwargs)
 		return dynamic_outputs
 
 	def static_run(self, *args, **kwargs):
 		return None
+
+	def dynamic_run(self, dynamic_outputs, *args, **kwargs):
+		dynamic_outputs = self.eval(dynamic_outputs, *args, **kwargs)
+		self.recurse_post_eval(dynamic_outputs)
+		return dynamic_outputs
 
 	def eval(self, static_outputs, *args, **kwargs):
 		raise errors.BlockNotDynamicError(self)
