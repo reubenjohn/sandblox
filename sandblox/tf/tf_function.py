@@ -2,8 +2,9 @@ import inspect
 from typing import Callable, Type, Union
 
 import tensorflow as tf
-from sandblox.core.mold import Mold
+
 from sandblox.core.function import Props, fn_to_built_block
+from sandblox.core.mold2 import Mold
 from sandblox.util import tf_util as U
 
 
@@ -50,11 +51,11 @@ class TFMold(Mold):
 		else:
 			return U.get_session()
 
-	def process_inputs(self, *args, **kwargs):
-		super(TFMold, self).process_inputs(*args, **kwargs)
-		if not self.is_dynamic:  # TODO Why this check?
+	def static_run(self, *args, **kwargs):
+		if self.built_fn:
 			self.built_fn.givens = self.get_all_givens()
 			self.built_fn.using(self.options, self.run_metadata)
+		return self.built_fn(*args, **kwargs)
 
 	def get_all_givens(self) -> dict:
 		givens = {}
@@ -73,9 +74,6 @@ class TFMold(Mold):
 		self.options = options
 		self.run_metadata = run_metadata
 		return self
-
-	def eval(self, *args, **kwargs):
-		return self.built_fn(*args, **kwargs)
 
 	def get_all_ops(self, scope_name: str = None) -> list:
 		if scope_name is None:

@@ -1,13 +1,15 @@
-from collections import OrderedDict
 from inspect import signature
 
-from sandblox import errors
-from sandblox.core.arg import resolve
-from sandblox.core.io import *
-from sandblox.core.io import BlockOutsBase
-from sandblox.util import *
+import tensorflow as tf
 
-python_less_than_3_3 = sys.version_info[0] < 3 and sys.version_info[1] < 3
+import sandblox.errors as errors
+from sandblox.constants.internal import python_less_than_3_3
+from sandblox.core.arg import resolve
+from sandblox.core.io import Props, Out, is_dynamic_input
+from sandblox.core.io import bind_resolved, BlockOutsBase
+from sandblox.util.misc import DictAttrs
+from sandblox.util.scope import Scope
+from sandblox.util.scope import UninitializedScope
 
 
 def flattened_dynamic_inputs(inps: dict) -> list:
@@ -23,17 +25,9 @@ def flattened_dynamic_inputs(inps: dict) -> list:
 	return result
 
 
-# TODO Support forwarding of arguments to variable_scope
-# TODO Implement sandblox saving mechanism
-
-
-def bind_resolved(fn, *args, **kwargs):
-	bound_args = U.FlatArgumentsBinder(fn)(*args, **kwargs)
-	resolved_args = OrderedDict([(key, resolve(value)) for key, value in bound_args.items()])
-	return resolved_args
-
-
 class Block(object):
+	# TODO Support forwarding of arguments to variable_scope
+	# TODO Implement sandblox saving mechanism
 	scope = UninitializedScope()
 
 	def __init__(self, **props_dict):
@@ -65,16 +59,20 @@ class Block(object):
 
 	@property
 	def is_dynamic(self):
-		if self._is_dynamic is not None:
-			return self._is_dynamic or any(b.is_dynamic for b in self.iz if isinstance(b, Block))
+		if self._is_dynamic is None:
+			self._is_dynamic = self.compute_is_dynamic()
+		return self._is_dynamic or any(b.is_dynamic for b in self.iz if isinstance(b, Block))
+
+	def compute_is_dynamic(self):
+		self._is_dynamic = True
 		try:
 			sig = signature(self.eval)
 			self.eval([None] * len(sig.parameters))
-		except errors.BlockNotDynamicException:
+		except errors.BlockNotDynamicError:
 			self._is_dynamic = False
 		except Exception:
-			self._is_dynamic = self.built_fn is None
-		return self._is_dynamic or any(b.is_dynamic for b in self.iz if isinstance(b, Block))
+			self._is_dynamic = True
+		return self.is_dynamic or any(b.is_dynamic for b in self.iz if isinstance(b, Block))
 
 	# TODO Add test case
 	def setup_scope(self, scope_name):
@@ -104,25 +102,26 @@ class Block(object):
 		raise NotImplementedError
 
 	def run(self, *args, **kwargs):
-		self.process_inputs(*args, **kwargs)
-		dynamic_oz = self.eval(*args, **kwargs)
-		self.post_eval(dynamic_oz)
-		return dynamic_oz
+		dynamic_outputs = self.static_run(*args, **kwargs)
+		if self.is_dynamic:
+			dynamic_outputs = self.eval(dynamic_outputs, *args, **kwargs)
+			self.recurse_post_eval(dynamic_outputs)
+		return dynamic_outputs
 
-	def process_inputs(self, *args, **kwargs):
-		pass
+	def static_run(self, *args, **kwargs):
+		return None
 
-	def eval(self, *args, **kwargs):
-		raise errors.BlockNotDynamicException(self)
+	def eval(self, static_outputs, *args, **kwargs):
+		raise errors.BlockNotDynamicError(self)
 
-	def post_eval(self, outputs):
+	def recurse_post_eval(self, outputs):
 		for inp in self.iz:
 			if isinstance(inp, Block):
-				inp.post_eval(outputs)
-		self.post_my_eval(outputs)
+				inp.recurse_post_eval(outputs)
+		self.post_eval(outputs)
 
 	# TODO Fix this disgusting design :(
-	def post_my_eval(self, outputs):
+	def post_eval(self, outputs):
 		pass
 
 	def get_all_ops(self, scope_name: str = None) -> list:
@@ -143,17 +142,3 @@ class Block(object):
 	def __str__(self):
 		return '%s.%s:/%s' % (
 			self.__module__, type(self).__name__ if python_less_than_3_3 else type(self).__qualname__, self.scope.abs)
-
-
-# noinspection PyAbstractClass
-class Mold(Block):
-	def __init__(self, **default_props):
-		self.default_props_dict = default_props
-		super(Mold, self).__init__(**default_props)
-
-	def __call__(self, *args, **kwargs):
-		props = dict(**self.default_props_dict)
-		props.update(kwargs.pop('props', Props()).__dict__)
-		block = type(self)(**props)
-		block.build_graph(*args, **kwargs)
-		return block

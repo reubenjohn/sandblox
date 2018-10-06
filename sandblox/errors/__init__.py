@@ -14,8 +14,8 @@ class NotBuiltError(AssertionError):
 			super(NotBuiltError, self).__init__(msg)
 
 
-class BlockNotDynamicException(NotImplementedError):
+class BlockNotDynamicError(NotImplementedError):
 	def __init__(self, block=None) -> None:
 		self.block = block
 		msg = 'Mold "{}" is not dynamic'.format(self.block)
-		super(BlockNotDynamicException, self).__init__(msg)
+		super(BlockNotDynamicError, self).__init__(msg)

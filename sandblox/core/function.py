@@ -1,11 +1,12 @@
 from typing import Type, Callable
 
-from sandblox.core.mold import Block, Mold
+from sandblox.core.block import Block
 from sandblox.core.io import Props
+from sandblox.core.mold2 import Mold
 
 
 class Function(Mold):
-	def eval(self, *args, **kwargs):
+	def eval(self, static_outputs, *args, **kwargs):
 		raise NotImplementedError
 
 	def build(self, *args, **kwargs):

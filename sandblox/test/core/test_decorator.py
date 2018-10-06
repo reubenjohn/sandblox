@@ -1,5 +1,7 @@
 from unittest import TestCase
 
+from sandblox.core.io import BlockOutsKwargs
+
 import sandblox as sx
 
 from . import TestBlockBase, FooLogic
@@ -9,7 +11,7 @@ from . import TestBlockBase, FooLogic
 def foo(x, y, param_with_default=-5, **kwargs):
 	b, a = FooLogic.call(x, y, param_with_default, **kwargs)
 
-	if sx.Out == sx.BlockOutsKwargs:
+	if sx.Out == BlockOutsKwargs:
 		return sx.Out(b=b, a=a)
 	else:
 		return sx.Out.b(b).a(a)

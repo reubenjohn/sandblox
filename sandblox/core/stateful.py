@@ -2,11 +2,11 @@ from typing import Type, Callable, List
 
 import numpy as np
 
+from sandblox import errors
 from sandblox.core.function import instantiate_block
-from sandblox.tf.tf_function import TFMold
 from sandblox.core.io import *
 from sandblox.core.io import BlockOutsBase
-from sandblox.util import *
+from sandblox.tf.tf_function import TFMold
 
 
 class StateManager(object):
@@ -68,7 +68,7 @@ class State(object):
 class DynamicStateBinder(State):
 	def __init__(self, output_index, prev, state_manager: StateManager, next):
 		super(DynamicStateBinder, self).__init__(prev, state_manager, next)
-		self.is_d_inp = True
+		self.__sandblox_dynamic__ = True
 		self.dynamic_output_index = output_index
 		self.dynamic_val = state_manager.new()
 
@@ -82,6 +82,7 @@ class StatefulTFBlock(TFMold):
 
 	def build_wrapper(self, *args, **kwargs) -> BlockOutsBase:
 		out = super(StatefulTFBlock, self).build_wrapper(*args, **kwargs)
+
 		for index, key in enumerate(out.o):
 			output = out.o[key]
 			if isinstance(output, tuple):
@@ -92,7 +93,9 @@ class StatefulTFBlock(TFMold):
 					assert self.state_manager is not None
 					state_manager = self.state_manager
 				else:
-					raise ValueError('Unexpected tuple of length: %d' % len(output))
+					raise ValueError(
+						'Observed static output is a tuple. It must thus be of form (prev_op, state_manager, next_op) '
+						'or (prev_op, next_op) if a default state manager has been specified in the props')
 
 				out.__getattr__(key)(next_op)
 				if is_dynamic_input(prev_op):
@@ -109,8 +112,14 @@ class StatefulTFBlock(TFMold):
 	def build(self, *args, **kwargs):
 		raise NotImplementedError
 
+	def compute_is_dynamic(self):
+		return len(self.dynamic_states) > 0 or super().compute_is_dynamic()
+
+	def eval(self, static_outputs, *args, **kwargs):
+		return static_outputs
+
 	@property
-	def dynamic_states(self):
+	def dynamic_states(self) -> List[DynamicStateBinder]:
 		return [state for state in [self.states[key] for key in self.states] if is_dynamic_input(state)]
 
 	def get_my_givens(self):
@@ -119,10 +128,12 @@ class StatefulTFBlock(TFMold):
 			binds[dynamic_state_binder.prev] = dynamic_state_binder.dynamic_val
 		return binds
 
-	def post_my_eval(self, outputs):
-		super(StatefulTFBlock, self).post_my_eval(outputs)
-		for dynamic_state_binder in self.dynamic_states:
-			dynamic_state_binder.dynamic_val = outputs[dynamic_state_binder.dynamic_output_index]
+	def post_eval(self, dynamic_oz):
+		if self.is_dynamic:
+			for dynamic_state_binder in self.dynamic_states:
+				dynamic_state_binder.dynamic_val = dynamic_oz[dynamic_state_binder.dynamic_output_index]
+		else:
+			raise errors.BlockNotDynamicError(self)
 
 
 def to_stateful_sandblox_function(fn: Callable, default_state_manager: TFStateManager,

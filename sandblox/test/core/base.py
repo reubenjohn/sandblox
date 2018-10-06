@@ -4,6 +4,7 @@ from typing import Type
 import tensorflow as tf
 
 import sandblox as sx
+import sandblox.core.io
 import sandblox.util.tf_util as U
 from sandblox.test.core.foo import FooLogic
 
@@ -11,9 +12,9 @@ from sandblox.test.core.foo import FooLogic
 class Suppressed(object):
 	# Wrapped classes don't get tested themselves
 	class TestBlockBase(object):
-		target = None  # type: Type[sx.TFBlock]
-		bad_target = None  # type: Type[sx.TFBlock]
-		block_foo_ob = None  # type: sx.TFBlock
+		target = None  # type: Type[sx.TFMold]
+		bad_target = None  # type: Type[sx.TFMold]
+		block_foo_ob = None  # type: sx.TFMold
 
 		def create_block_ob(self, **props) -> sx.TFMold:
 			raise NotImplementedError
@@ -26,7 +27,7 @@ class Suppressed(object):
 		def __init__(self, method_name: str = 'runTest'):
 			super(Suppressed.TestBlockBase, self).__init__(method_name)
 			with tf.variable_scope(self.block_foo_ob.scope.rel, reuse=True):
-				self.bound_flattened_logic_args = sx.bind_resolved(FooLogic.call, *FooLogic.args, **FooLogic.kwargs)
+				self.bound_flattened_logic_args = sandblox.core.io.bind_resolved(FooLogic.call, *FooLogic.args, **FooLogic.kwargs)
 				self.logic_outs = list(FooLogic.resolved_args_call(FooLogic.call))
 
 			self.options = tf.RunOptions()

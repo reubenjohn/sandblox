@@ -1,16 +1,17 @@
 from contextlib import contextmanager
 from unittest import TestCase
 
+import numpy as np
+
 from sandblox import *
-
-
-# TODO Handle default and implicit dynamic_val management
-# TODO Lifecycle that fuses dynamic_val & static graph based computing
 from sandblox import TFMold
 from sandblox.tf.tf_function import tf_block
 
 
 class Suppress(object):
+	# TODO Handle default and implicit dynamic_val management
+	# TODO Lifecycle that fuses dynamic_val & static graph based computing
+
 	class TestHierarchicalBase(TestCase):
 		__slots__ = 'state_tensor', 'mean_selector', 'hypo'
 
