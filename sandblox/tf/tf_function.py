@@ -4,7 +4,7 @@ from typing import Callable, Type, Union
 import tensorflow as tf
 
 from sandblox.core.function import Props, fn_to_built_block
-from sandblox.core.mold2 import Mold
+from sandblox.core.mold import Mold
 from sandblox.util import tf_util as U
 
 

@@ -2,7 +2,7 @@ from typing import Type, Callable
 
 from sandblox.core.block import Block
 from sandblox.core.io import Props
-from sandblox.core.mold2 import Mold
+from sandblox.core.mold import Mold
 
 
 class Function(Mold):
