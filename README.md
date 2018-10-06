@@ -66,14 +66,17 @@ A block undergoes a well defined life cycle:
 Take for instance the creation of a weird block where we concatenate two arrays, add a bias and then pass it through a fully connected layer:
 
 ```python
-@sx.tf_function
+import tensorflow as tf
+import sandblox as sx
+
+@sx.tf_block
 def foo_block(x, y, bias=tf.constant(.1)):
     concat = tf.concat([x, y], axis=0)
     biased = concat + bias
     return sx.Out.logits(tf.layers.dense(biased, 2)).bias(biased)
 ```
 
-By adding the `@sx.tf_function` decorator, the function is automagically turned into a block.
+By adding the `@sx.tf_block` decorator, the function is automagically turned into a block.
 This means that calling this function with parameters will create a new instance of the block.
 
 ```python
@@ -118,7 +121,7 @@ In case of tensorflow blocks, you can also explicitly specify props for overridi
 In cases where you want to separate the instantiation stage from the static graph building stage or if you want to access the props during the static evaluation, you can use class inheritance instead of the decorator:
 
 ```python
-class FooBlock(sx.TFFunction):
+class FooBlock(sx.TFMold):
     def build(self, x, y, bias):
         concat = tf.concat([x, y], axis=0)
         biased = concat + bias
@@ -135,7 +138,7 @@ block(tf.Variable([[.4, .5]]), tf.placeholder(tf.float32, [None, 2]))
 This is especially useful if you want to perform some kind of custom initialization:
 
 ```python
-class FooBlock(sx.TFFunction):
+class FooBlock(sx.TFMold):
     def __init__(self, **props):
         ...
     def build(self, ...):
@@ -145,7 +148,7 @@ class FooBlock(sx.TFFunction):
 Classes also allow you to provide custom dynamic evaluation, allowing you to utilize dynamic compute based libraries such as PyTorch:
 
 ```python
-class FooBlock(sx.TFFunction):
+class FooBlock(sx.TFMold):
     ...
     def eval(*args, **kwargs):
         result = super(FooBlock, self).eval(*args, **kwargs)
@@ -154,7 +157,10 @@ class FooBlock(sx.TFFunction):
 
 Thus by following this well defined design, a lot of things can be provided out-of-the-box, so that you can focus on what's inside the block instead of what's outside block.
  
-Since a block has both a static and dynamic stage, it supports both static and dynamic back-ends.  
+Since a block has both a static and dynamic stage, it supports both static and dynamic back-ends.
+
+Once you get the hang of blocks, you start to see the possibilities, for instance:
+
 **Chaining**: The outputs of one block could be provided as inputs to another.  
 **Hierarchies**: One block could be used within another block, i.e. the output block provides it inputs and uses it's outputs.  
 Imagine blocks that use hierarchies and chaining together!
@@ -162,7 +168,7 @@ For example, a layer that sequentially applies blocks:
 
 ```python
 result = MySequentialBlock(
-    tf.placeholder(...),
+    Input(tf.placeholder(...)),
     ConvBlock(kernel_size=3),
     DenseBlock(size=5)
 )
@@ -174,19 +180,19 @@ Imagine building your entire model in an extremely concise, modular and composab
 ```
 model = Foo(
     Octo(
-        Cat(                          ^---^
-            With(...),          <{||=- @ @ -=||}>
-            Dragon(...),              ).-.(
-            Wings(...),              '/|||\`
-        ),                             '|`  
+        Cat(                  #        ^---^
+            With(...),        #  <{||=- @ @ -=||}>
+            Dragon(...),      #        ).V.(
+            Wings(...),       #       '/|||\`
+        ),                    #         '|`  
         LOL(...),
     ),
     Octo(
-        Cat(
-            Without(...),
-            Dragon(...),
-            Wings(...)
-        )
+        Cat(                  #        ^---^
+            Without(...),     #       ( @ @ )
+            Dragon(...),      #        ).V.(
+            Wings(...)        #       '/|||\`
+        )                     #         '|`  
     ),
     ...
 )
@@ -202,9 +208,3 @@ model = Foo(
  - Streamlined project lifecycle from model prototyping and deployment
  - Opensource version-controlled projects
  - R&D and publishing reproducible results
-
-Inspiration
----
- - React
- - Caffe Zoo
- - npm community

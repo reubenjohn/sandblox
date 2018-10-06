@@ -1,24 +1,13 @@
 from collections import OrderedDict
-from typing import Callable
+from inspect import signature
 
-import sandblox.errors
+from sandblox import errors
+from sandblox.core.arg import resolve
 from sandblox.core.io import *
 from sandblox.core.io import BlockOutsBase
 from sandblox.util import *
 
 python_less_than_3_3 = sys.version_info[0] < 3 and sys.version_info[1] < 3
-
-class LateBoundArg(object):
-	def __init__(self, resolver: Callable):
-		self.resolver = resolver
-
-	def resolve(self):
-		return self.resolver()
-
-
-def resolve(*args):
-	resolved = [arg.resolve() if isinstance(arg, LateBoundArg) else arg for arg in args]
-	return resolved if len(resolved) > 1 else resolved[0]
 
 
 def flattened_dynamic_inputs(inps: dict) -> list:
@@ -27,9 +16,9 @@ def flattened_dynamic_inputs(inps: dict) -> list:
 		inp = inps[key]
 		if is_dynamic_input(inp):
 			result.append(resolve(inp))
-		elif isinstance(inp, BlockBase):
+		elif isinstance(inp, Block):
 			if not inp.is_built():
-				raise sandblox.errors.NotBuiltError(block=inp)
+				raise errors.NotBuiltError(block=inp)
 			result.extend(inp.di)
 	return result
 
@@ -44,10 +33,11 @@ def bind_resolved(fn, *args, **kwargs):
 	return resolved_args
 
 
-class BlockBase(object):
+class Block(object):
 	scope = UninitializedScope()
 
 	def __init__(self, **props_dict):
+		self._is_dynamic = None
 		self._is_built = False
 		self.i = self.o = self.iz = self.oz = self.di = self.built_fn = None
 		self.props = Props(**props_dict)
@@ -70,13 +60,21 @@ class BlockBase(object):
 		self.oz = out.oz
 		self._is_built = True
 
-		return self
-
 	def is_built(self):
 		return self._is_built
 
+	@property
 	def is_dynamic(self):
-		return self.built_fn is None or any(b.is_dynamic() for b in self.iz if isinstance(b, BlockBase))
+		if self._is_dynamic is not None:
+			return self._is_dynamic or any(b.is_dynamic for b in self.iz if isinstance(b, Block))
+		try:
+			sig = signature(self.eval)
+			self.eval([None] * len(sig.parameters))
+		except errors.BlockNotDynamicException:
+			self._is_dynamic = False
+		except Exception:
+			self._is_dynamic = self.built_fn is None
+		return self._is_dynamic or any(b.is_dynamic for b in self.iz if isinstance(b, Block))
 
 	# TODO Add test case
 	def setup_scope(self, scope_name):
@@ -115,11 +113,11 @@ class BlockBase(object):
 		pass
 
 	def eval(self, *args, **kwargs):
-		raise NotImplementedError
+		raise errors.BlockNotDynamicException(self)
 
 	def post_eval(self, outputs):
 		for inp in self.iz:
-			if isinstance(inp, BlockBase):
+			if isinstance(inp, Block):
 				inp.post_eval(outputs)
 		self.post_my_eval(outputs)
 
@@ -133,15 +131,29 @@ class BlockBase(object):
 	def get_variables(self):
 		raise NotImplementedError
 
-	def assign_vars(self, source_block: 'BlockBase'):
+	def assign_vars(self, source_block: 'Block'):
 		raise NotImplementedError
 
 	def get_trainable_variables(self):
 		raise NotImplementedError
 
-	def assign_trainable_vars(self, source_block: 'BlockBase'):
+	def assign_trainable_vars(self, source_block: 'Block'):
 		raise NotImplementedError
 
 	def __str__(self):
 		return '%s.%s:/%s' % (
 			self.__module__, type(self).__name__ if python_less_than_3_3 else type(self).__qualname__, self.scope.abs)
+
+
+# noinspection PyAbstractClass
+class Mold(Block):
+	def __init__(self, **default_props):
+		self.default_props_dict = default_props
+		super(Mold, self).__init__(**default_props)
+
+	def __call__(self, *args, **kwargs):
+		props = dict(**self.default_props_dict)
+		props.update(kwargs.pop('props', Props()).__dict__)
+		block = type(self)(**props)
+		block.build_graph(*args, **kwargs)
+		return block

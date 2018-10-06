@@ -2,7 +2,8 @@ from typing import Type, Callable, List
 
 import numpy as np
 
-from sandblox.core.function import TFFunction, instantiate_sandblox_function
+from sandblox.core.function import instantiate_block
+from sandblox.tf.tf_function import TFMold
 from sandblox.core.io import *
 from sandblox.core.io import BlockOutsBase
 from sandblox.util import *
@@ -72,15 +73,15 @@ class DynamicStateBinder(State):
 		self.dynamic_val = state_manager.new()
 
 
-class StatefulTFFunction(TFFunction):
+class StatefulTFBlock(TFMold):
 	state_manager = None  # type: TFStateManager
 
 	def __init__(self, **props):
 		self.states = DictAttrs()
-		super(StatefulTFFunction, self).__init__(**props)
+		super(StatefulTFBlock, self).__init__(**props)
 
 	def build_wrapper(self, *args, **kwargs) -> BlockOutsBase:
-		out = super(StatefulTFFunction, self).build_wrapper(*args, **kwargs)
+		out = super(StatefulTFBlock, self).build_wrapper(*args, **kwargs)
 		for index, key in enumerate(out.o):
 			output = out.o[key]
 			if isinstance(output, tuple):
@@ -113,20 +114,20 @@ class StatefulTFFunction(TFFunction):
 		return [state for state in [self.states[key] for key in self.states] if is_dynamic_input(state)]
 
 	def get_my_givens(self):
-		binds = super(StatefulTFFunction, self).get_my_givens()
+		binds = super(StatefulTFBlock, self).get_my_givens()
 		for dynamic_state_binder in self.dynamic_states:
 			binds[dynamic_state_binder.prev] = dynamic_state_binder.dynamic_val
 		return binds
 
 	def post_my_eval(self, outputs):
-		super(StatefulTFFunction, self).post_my_eval(outputs)
+		super(StatefulTFBlock, self).post_my_eval(outputs)
 		for dynamic_state_binder in self.dynamic_states:
 			dynamic_state_binder.dynamic_val = outputs[dynamic_state_binder.dynamic_output_index]
 
 
 def to_stateful_sandblox_function(fn: Callable, default_state_manager: TFStateManager,
-								  base_cls: Type[StatefulTFFunction],
-								  def_props: Props) -> Type[StatefulTFFunction]:
+								  base_cls: Type[StatefulTFBlock],
+								  def_props: Props) -> Type[StatefulTFBlock]:
 	# noinspection PyAbstractClass
 	class StatefulDecoratedFunction(base_cls):
 		build = fn
@@ -136,16 +137,16 @@ def to_stateful_sandblox_function(fn: Callable, default_state_manager: TFStateMa
 			self.build = fn
 			super(StatefulDecoratedFunction, self).__init__(**props)
 
-	return instantiate_sandblox_function(StatefulDecoratedFunction, fn.__name__, def_props)
+	return instantiate_block(StatefulDecoratedFunction, fn.__name__, def_props)
 
 
 def stateful_tf_function(default_state_type: TFStateManager,
-						 cls: Type[StatefulTFFunction] = StatefulTFFunction,
-						 default_props: Props = None) -> '(fn: Any) -> Type[StatefulTFFunction]':
+						 cls: Type[StatefulTFBlock] = StatefulTFBlock,
+						 default_props: Props = None) -> '(fn: Any) -> Type[StatefulTFBlock]':
 	if default_state_type is not None:
 		assert isinstance(default_state_type, TFStateManager)
 
-	def stateful_tf_block_decorator(fn: Callable) -> StatefulTFFunction:
+	def stateful_tf_block_decorator(fn: Callable) -> StatefulTFBlock:
 		return to_stateful_sandblox_function(fn, default_state_type, cls, default_props)
 
 	return stateful_tf_block_decorator

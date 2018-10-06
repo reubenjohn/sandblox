@@ -13,7 +13,7 @@ pip-tools==2.0.2
 pipreqs==0.4.9
 pluggy==0.7.1
 py==1.6.0
-pytest==3.8.0
+pytest==3.8.1
 requests==2.19.1
 six==1.11.0
 tensorflow==1.10.1

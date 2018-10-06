@@ -1,17 +1,16 @@
 from typing import Callable, Union, Any
 from unittest import TestCase
 
+import sandblox as sx
 import tensorflow as tf
 
-import sandblox as sx
 
-
-class Adder(sx.TFFunction):
+class Adder(sx.TFMold):
 	def build(self, a, b):
 		return sx.Out.result(tf.add(a, b))
 
 
-@sx.tf_function
+@sx.tf_block
 def square(calculator):
 	return sx.Out.result(tf.square(calculator.o.result))
 

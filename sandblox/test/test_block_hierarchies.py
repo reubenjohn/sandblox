@@ -6,6 +6,10 @@ from sandblox import *
 
 # TODO Handle default and implicit dynamic_val management
 # TODO Lifecycle that fuses dynamic_val & static graph based computing
+from sandblox import TFMold
+from sandblox.tf.tf_function import tf_block
+
+
 class Suppress(object):
 	class TestHierarchicalBase(TestCase):
 		__slots__ = 'state_tensor', 'mean_selector', 'hypo'
@@ -84,7 +88,7 @@ class Suppress(object):
 				self.assertTrue(np.array_equal(means, [1, 2]))
 
 
-@tf_function(default_props=Props(state_manager=TFStateManager([2], np.float32)))
+@tf_block(default_props=Props(state_manager=TFStateManager([2], np.float32)))
 def increase_input(offset, accumulation):
 	next_state = accumulation + offset
 	return Out.offset(offset).accumulation(next_state)
@@ -92,11 +96,11 @@ def increase_input(offset, accumulation):
 
 class MeanEvaluators:
 	@staticmethod
-	@tf_function
+	@tf_block
 	def reduce_mean(elems):
 		return Out.mean(tf.reduce_mean(elems, axis=1))
 
-	class MapReduceMean(TFFunction):
+	class MapReduceMean(TFMold):
 		def build(self, elems):
 			mapped = tf.map_fn(self.props.func, elems)
 			return Out.mean(tf.reduce_mean(mapped, axis=1))
@@ -110,7 +114,7 @@ def evaluate_selected_mean(selected_index, mean_evaluators, stateful_input) -> O
 
 
 @stateful_tf_function(None)
-def accumulate_selected_mean(selected_index, mean_evaluators, stateful_input) -> StatefulTFFunction:
+def accumulate_selected_mean(selected_index, mean_evaluators, stateful_input) -> StatefulTFBlock:
 	mean = evaluate_selected_mean(selected_index, mean_evaluators, stateful_input)
 	return Out.mean(mean).accumulation(
 		(stateful_input.i.accumulation, stateful_input.props.state_manager, stateful_input.o.accumulation))
@@ -128,7 +132,7 @@ class TestVariableStateBlockHierarchy(Suppress.TestHierarchicalBase):
 
 @stateful_tf_function(increase_input.props.state_manager)
 def accumulate_selected_mean_with_default_state_manager(selected_index, mean_evaluators,
-														stateful_input) -> StatefulTFFunction:
+														stateful_input) -> StatefulTFBlock:
 	mean = evaluate_selected_mean(selected_index, mean_evaluators, stateful_input)
 	return Out.mean(mean).accumulation((stateful_input.i.accumulation, stateful_input.o.accumulation))
 
