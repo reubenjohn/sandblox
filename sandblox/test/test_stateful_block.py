@@ -4,7 +4,7 @@ import numpy as np
 import tensorflow as tf
 
 import sandblox as sx
-from sandblox import TFMold
+from sandblox.util import U
 from sandblox.tf.tf_mold import tf_static
 
 
@@ -19,7 +19,7 @@ def reduce_mean(elems):
 	return sx.Out.mean(tf.reduce_mean(elems, axis=1))
 
 
-class MapReduceMean(TFMold):
+class MapReduceMean(sx.TFMold):
 	def static(self, elems):
 		mapped = tf.map_fn(self.props.func, elems)
 		return sx.Out.mean(tf.reduce_mean(mapped, axis=1))
