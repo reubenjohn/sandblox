@@ -33,13 +33,13 @@ def _evaluate_selected_mean(selected_index, mean_evaluators, add) -> sx.Out:
 
 
 @sx.stateful_tf_static(None)
-def accumulate_selected_mean(selected_index, mean_evaluators, add) -> sx.StatefulTFBlock:
+def accumulate_selected_mean(selected_index, mean_evaluators, add) -> sx.StatefulTFMold:
 	mean = _evaluate_selected_mean(selected_index, mean_evaluators, add)
 	return sx.Out.mean(mean).b((add.i.b, add.props.state_manager, add.o.b))
 
 
 @sx.stateful_tf_static(add.props.state_manager)
-def accumulate_selected_mean_with_default_state_manager(selected_index, mean_evaluators, add) -> sx.StatefulTFBlock:
+def accumulate_selected_mean_with_default_state_manager(selected_index, mean_evaluators, add) -> sx.StatefulTFMold:
 	mean = _evaluate_selected_mean(selected_index, mean_evaluators, add)
 	return sx.Out.mean(mean).b((add.i.b, add.o.b))
 

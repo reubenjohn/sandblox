@@ -73,15 +73,15 @@ class DynamicStateBinder(State):
 		self.dynamic_val = state_manager.new()
 
 
-class StatefulTFBlock(TFMold):
+class StatefulTFMold(TFMold):
 	state_manager = None  # type: TFStateManager
 
 	def __init__(self, **props):
 		self.states = DictAttrs()
-		super(StatefulTFBlock, self).__init__(**props)
+		super(StatefulTFMold, self).__init__(**props)
 
 	def _wrap_static(self, *args, **kwargs) -> BlockOutsBase:
-		out = super(StatefulTFBlock, self)._wrap_static(*args, **kwargs)
+		out = super(StatefulTFMold, self)._wrap_static(*args, **kwargs)
 
 		for index, key in enumerate(out.o):
 			output = out.o[key]
@@ -124,7 +124,7 @@ class StatefulTFBlock(TFMold):
 		return [state for state in [self.states[key] for key in self.states] if is_dynamic_input(state)]
 
 	def self_givens(self):
-		binds = super(StatefulTFBlock, self).self_givens()
+		binds = super(StatefulTFMold, self).self_givens()
 		for dynamic_state_binder in self.dynamic_states:
 			binds[dynamic_state_binder.prev] = dynamic_state_binder.dynamic_val
 		return binds
@@ -138,8 +138,8 @@ class StatefulTFBlock(TFMold):
 
 
 def to_stateful_sandblox_function(fn: Callable, default_state_manager: TFStateManager,
-								  base_cls: Type[StatefulTFBlock],
-								  def_props: Props) -> Type[StatefulTFBlock]:
+								  base_cls: Type[StatefulTFMold],
+								  def_props: Props) -> Type[StatefulTFMold]:
 	# noinspection PyAbstractClass
 	class StatefulDecoratedFunction(base_cls):
 		static = fn
@@ -153,12 +153,12 @@ def to_stateful_sandblox_function(fn: Callable, default_state_manager: TFStateMa
 
 
 def stateful_tf_static(default_state_type: TFStateManager,
-					   cls: Type[StatefulTFBlock] = StatefulTFBlock,
-					   default_props: Props = None) -> '(fn: Any) -> Type[StatefulTFBlock]':
+					   cls: Type[StatefulTFMold] = StatefulTFMold,
+					   default_props: Props = None) -> '(fn: Any) -> Type[StatefulTFMold]':
 	if default_state_type is not None:
 		assert isinstance(default_state_type, TFStateManager)
 
-	def stateful_tf_block_decorator(fn: Callable) -> StatefulTFBlock:
+	def stateful_tf_block_decorator(fn: Callable) -> StatefulTFMold:
 		return to_stateful_sandblox_function(fn, default_state_type, cls, default_props)
 
 	return stateful_tf_block_decorator
