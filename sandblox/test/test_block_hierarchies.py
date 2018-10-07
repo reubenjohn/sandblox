@@ -5,7 +5,7 @@ import numpy as np
 
 from sandblox import *
 from sandblox import TFMold
-from sandblox.tf.tf_function import tf_block
+from sandblox.tf.tf_mold import tf_block
 
 
 class Suppress(object):

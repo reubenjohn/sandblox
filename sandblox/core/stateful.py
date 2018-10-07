@@ -6,7 +6,7 @@ from sandblox import errors
 from sandblox.core.function import instantiate_block
 from sandblox.core.io import *
 from sandblox.core.io import BlockOutsBase
-from sandblox.tf.tf_function import TFMold
+from sandblox.tf.tf_mold import TFMold
 
 
 class StateManager(object):
