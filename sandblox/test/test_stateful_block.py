@@ -1,46 +1,47 @@
 from unittest import TestCase
 
 import numpy as np
+import tensorflow as tf
 
-from sandblox import *
+import sandblox as sx
 from sandblox import TFMold
 from sandblox.tf.tf_mold import tf_static
 
 
-@tf_static(props=Props(state_manager=TFStateManager([2], np.float32)))
+@tf_static(props=sx.Props(state_manager=sx.TFStateManager([2], np.float32)))
 def add(a, b):
 	next_state = b + a
-	return Out.offset(a).b(next_state)
+	return sx.Out.offset(a).b(next_state)
 
 
 @tf_static
 def reduce_mean(elems):
-	return Out.mean(tf.reduce_mean(elems, axis=1))
+	return sx.Out.mean(tf.reduce_mean(elems, axis=1))
 
 
 class MapReduceMean(TFMold):
 	def static(self, elems):
 		mapped = tf.map_fn(self.props.func, elems)
-		return Out.mean(tf.reduce_mean(mapped, axis=1))
+		return sx.Out.mean(tf.reduce_mean(mapped, axis=1))
 
 
-def _evaluate_selected_mean(selected_index, mean_evaluators, add) -> Out:
+def _evaluate_selected_mean(selected_index, mean_evaluators, add) -> sx.Out:
 	means = [mean_evaluator(add.i.a).o.mean for mean_evaluator in mean_evaluators]
 	cast_indices = tf.cast(selected_index, tf.int32, 'cast_indices')
 	selected_op = tf.gather(means, cast_indices, name='indexed_elements')[:, 0]
 	return selected_op
 
 
-@stateful_tf_static(None)
-def accumulate_selected_mean(selected_index, mean_evaluators, add) -> StatefulTFBlock:
+@sx.stateful_tf_static(None)
+def accumulate_selected_mean(selected_index, mean_evaluators, add) -> sx.StatefulTFBlock:
 	mean = _evaluate_selected_mean(selected_index, mean_evaluators, add)
-	return Out.mean(mean).b((add.i.b, add.props.state_manager, add.o.b))
+	return sx.Out.mean(mean).b((add.i.b, add.props.state_manager, add.o.b))
 
 
-@stateful_tf_static(add.props.state_manager)
-def accumulate_selected_mean_with_default_state_manager(selected_index, mean_evaluators, add) -> StatefulTFBlock:
+@sx.stateful_tf_static(add.props.state_manager)
+def accumulate_selected_mean_with_default_state_manager(selected_index, mean_evaluators, add) -> sx.StatefulTFBlock:
 	mean = _evaluate_selected_mean(selected_index, mean_evaluators, add)
-	return Out.mean(mean).b((add.i.b, add.o.b))
+	return sx.Out.mean(mean).b((add.i.b, add.o.b))
 
 
 class Suppress(object):
@@ -72,9 +73,9 @@ class Suppress(object):
 				add=add(
 					tf.placeholder(tf.float32, [None, 2], 'offset'),
 					state_tensor,
-					props=Props(scope_name='hypo')
+					props=sx.Props(scope_name='hypo')
 				),
-				props=Props(scope_name='agent')
+				props=sx.Props(scope_name='agent')
 			)
 			# TODO Make sandblox handle global variable initialization
 			init = tf.global_variables_initializer()
@@ -90,7 +91,7 @@ class Suppress(object):
 			self.assertEqual(self.mean_selector.iz, [ai.selected_index, ai.mean_evaluators, ai.add])
 			hi = ai.add.i
 			expected_di = [ai.selected_index, hi.a]
-			if is_dynamic_input(self.state_tensor):
+			if sx.is_dynamic_input(self.state_tensor):
 				expected_di.append(hi.b)
 			self.assertEqual(self.mean_selector.di, expected_di)
 
