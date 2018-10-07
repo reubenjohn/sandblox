@@ -10,7 +10,7 @@ class Adder(sx.TFMold):
 		return sx.Out.result(tf.add(a, b))
 
 
-@sx.tf_block
+@sx.tf_static
 def square(calculator):
 	return sx.Out.result(tf.square(calculator.o.result))
 

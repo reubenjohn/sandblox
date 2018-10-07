@@ -2,6 +2,7 @@ import inspect
 from typing import Callable, Type, Union
 
 import tensorflow as tf
+from sandblox.core.io import Out
 
 from sandblox.core.context import StaticContext
 from sandblox.core.function import Props, fn_to_built_block
@@ -77,16 +78,13 @@ class TFMold(Mold):
 		return TFStaticContext(self)
 
 	def static(self, *args, **kwargs):
-		raise NotImplementedError
+		return Out
 
-	def _static_run(self, givens, *args, **kwargs):
+	def _static_run(self, *args, **kwargs):
 		if self.built_fn:
-			self.built_fn.givens = givens
+			self.built_fn.givens = self.givens()
 			self.built_fn.using(self.options, self.run_metadata)
 		return self.built_fn(*args, **kwargs)
-
-	def _dynamic_run(self, dynamic_outputs, *args, **kwargs):
-		return super()._dynamic_run(dynamic_outputs, *args, **kwargs)
 
 	def get_all_ops(self, scope_name: str = None) -> list:
 		if scope_name is None:
@@ -129,6 +127,6 @@ def _tf_block_meta_decorator(cls: Type[TFMold] = None,
 	return tf_block_decorator
 
 
-def tf_block(fn_or_cls: Union[Callable, TFMold] = TFMold, props: Props = None) -> Type[TFMold]:
+def tf_static(fn_or_cls: Union[Callable, TFMold] = TFMold, props: Props = None) -> Type[TFMold]:
 	is_meta_decorator = not inspect.isfunction(fn_or_cls)
 	return _tf_block_meta_decorator(fn_or_cls, props) if is_meta_decorator else _tf_block_decorator(fn_or_cls)

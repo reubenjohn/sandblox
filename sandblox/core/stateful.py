@@ -110,13 +110,14 @@ class StatefulTFBlock(TFMold):
 		return out
 
 	def static(self, *args, **kwargs):
-		raise NotImplementedError
+		return Out
 
 	def compute_is_dynamic(self):
 		return len(self.dynamic_states) > 0 or super().compute_is_dynamic()
 
-	def dynamic(self, static_outputs, *args, **kwargs):
-		return static_outputs
+	def dynamic(self, *args, **kwargs):
+		if self.is_dynamic:
+			return self._static_run(*args, **kwargs)
 
 	@property
 	def dynamic_states(self) -> List[DynamicStateBinder]:
@@ -151,9 +152,9 @@ def to_stateful_sandblox_function(fn: Callable, default_state_manager: TFStateMa
 	return instantiate_block(StatefulDecoratedFunction, fn.__name__, def_props)
 
 
-def stateful_tf_function(default_state_type: TFStateManager,
-						 cls: Type[StatefulTFBlock] = StatefulTFBlock,
-						 default_props: Props = None) -> '(fn: Any) -> Type[StatefulTFBlock]':
+def stateful_tf_static(default_state_type: TFStateManager,
+					   cls: Type[StatefulTFBlock] = StatefulTFBlock,
+					   default_props: Props = None) -> '(fn: Any) -> Type[StatefulTFBlock]':
 	if default_state_type is not None:
 		assert isinstance(default_state_type, TFStateManager)
 

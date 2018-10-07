@@ -69,14 +69,14 @@ Take for instance the creation of a weird block where we concatenate two arrays,
 import tensorflow as tf
 import sandblox as sx
 
-@sx.tf_block
+@sx.tf_static
 def foo_block(x, y, bias=tf.constant(.1)):
     concat = tf.concat([x, y], axis=0)
     biased = concat + bias
     return sx.Out.logits(tf.layers.dense(biased, 2)).bias(biased)
 ```
 
-By adding the `@sx.tf_block` decorator, the function is automagically turned into a block.
+By adding the `@sx.tf_static` decorator, the function is automagically turned into a block.
 This means that calling this function with parameters will create a new instance of the block.
 
 ```python

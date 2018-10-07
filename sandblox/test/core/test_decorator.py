@@ -7,7 +7,7 @@ from sandblox.core.io import BlockOutsKwargs
 from . import TestBlockBase, FooLogic
 
 
-@sx.tf_block
+@sx.tf_static
 def foo(x, y, param_with_default=-5, **kwargs):
 	b, a = FooLogic.call(x, y, param_with_default, **kwargs)
 
@@ -17,7 +17,7 @@ def foo(x, y, param_with_default=-5, **kwargs):
 		return sx.Out.b(b).a(a)
 
 
-@sx.tf_block
+@sx.tf_static
 def bad_foo(x, y, param_with_default=-5, **kwargs):
 	b, a = FooLogic.call(x, y, param_with_default, **kwargs)
 	return b, a

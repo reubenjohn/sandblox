@@ -1,16 +1,11 @@
 from typing import Type, Callable
 
-from sandblox import errors
-
 from sandblox.core.block import Block
 from sandblox.core.io import Props
 from sandblox.core.mold import Mold
 
 
 class Function(Mold):
-	def dynamic(self, static_outputs, *args, **kwargs):
-		raise errors.BlockNotDynamicError(self)
-
 	def static(self, *args, **kwargs):
 		raise NotImplementedError
 

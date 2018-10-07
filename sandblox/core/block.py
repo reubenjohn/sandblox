@@ -93,12 +93,13 @@ class Block(object):
 			raise AssertionError('A SandBlock must either return only a ' + type(Out).__name__)
 
 	def static(self, *args, **kwargs):
-		raise NotImplementedError
+		return Out
 
 	def run(self, *args, **kwargs):
-		dynamic_outputs = self._static_run(self.givens(), *args, **kwargs)
-		if self.is_dynamic:
-			dynamic_outputs = self._dynamic_run(dynamic_outputs, *args, **kwargs)
+		if not self.is_dynamic:
+			dynamic_outputs = self._static_run(*args, **kwargs)
+		else:
+			dynamic_outputs = self._dynamic_run(*args, **kwargs)
 		return dynamic_outputs
 
 	def givens(self) -> dict:
@@ -112,11 +113,11 @@ class Block(object):
 	def self_givens(self):
 		return self._self_givens
 
-	def _static_run(self, givens, *args, **kwargs):
-		return None
+	def _static_run(self, *args, **kwargs):
+		return Out
 
-	def _dynamic_run(self, dynamic_outputs, *args, **kwargs):
-		dynamic_outputs = self.dynamic(dynamic_outputs, *args, **kwargs)
+	def _dynamic_run(self, *args, **kwargs):
+		dynamic_outputs = self.dynamic(*args, **kwargs)
 		self._recurse_dynamic_results(dynamic_outputs)
 		return dynamic_outputs
 
