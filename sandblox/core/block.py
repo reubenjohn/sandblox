@@ -65,13 +65,15 @@ class Block(object):
 		return StaticContext(self)
 
 	def build_graph(self, *args, **kwargs):
-		self.i, self.iz, self.di, bound_args = self._bind(*args, **kwargs)
+		assert not self._is_built, 'Block already built'
 
 		with self.static_context():
+			self.i, self.iz, self.di, bound_args = self._bind(*args, **kwargs)
 			out = self.build_wrapper(**bound_args)
 
 		self.o = out.o
 		self.oz = out.oz
+
 		self._is_built = True
 
 	def _bind(self, *args, **kwargs):

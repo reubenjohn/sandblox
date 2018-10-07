@@ -89,7 +89,7 @@ class Suppress(object):
 				self.assertTrue(np.array_equal(means, [1, 2]))
 
 
-@tf_block(default_props=Props(state_manager=TFStateManager([2], np.float32)))
+@tf_block(props=Props(state_manager=TFStateManager([2], np.float32)))
 def increase_input(offset, accumulation):
 	next_state = accumulation + offset
 	return Out.offset(offset).accumulation(next_state)

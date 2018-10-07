@@ -1,9 +1,9 @@
 from unittest import TestCase
 
-from sandblox.core.io import BlockOutsKwargs
+import tensorflow as tf
 
 import sandblox as sx
-
+from sandblox.core.io import BlockOutsKwargs
 from . import TestBlockBase, FooLogic
 
 
@@ -24,12 +24,28 @@ def bad_foo(x, y, param_with_default=-5, **kwargs):
 
 
 class TestBlockFunction(TestBlockBase, TestCase):
-	target = foo
-	bad_target = bad_foo
-	block_foo_ob = FooLogic.args_call(target)
+	mold_cls = None
+	bad_mold_cls = None
 
-	def create_block_ob(self, **props) -> sx.Block:
-		return FooLogic.args_call(TestBlockFunction.target, props=sx.Props(**props))
+	def create_block(self, **props):
+		raise AssertionError('Block decorations are designed to share share one block instance')
 
-	def create_bad_block_ob(self, **props) -> sx.Block:
-		return FooLogic.args_call(TestBlockFunction.bad_target, props=sx.Props(**props))
+	def create_bad_block(self, **props):
+		raise AssertionError('Block decorations are designed to share share one block instance')
+
+	def build_block(self, block=None, **props) -> sx.TFMold:
+		return super().build_block(foo, **props)
+
+	def create_bad_built_block(self, block=None, **props) -> sx.TFMold:
+		return super().build_block(bad_foo, **props)
+
+	def test_is_built(self):
+		with tf.Graph().as_default():
+			self.assertTrue(not foo.is_built())
+
+			block = self.build_block(scope_name='make_me_unique')
+			self.assertTrue(block.is_built())
+
+			with self.assertRaises(AssertionError) as ctx:
+				FooLogic.args_call(block.build_graph)
+			self.assertTrue('already built' in ctx.exception.args[0])

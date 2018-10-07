@@ -1,9 +1,9 @@
 from unittest import TestCase
 
-from sandblox.core.io import BlockOutsKwargs
+import tensorflow as tf
 
 import sandblox as sx
-
+from sandblox.core.io import BlockOutsKwargs
 from . import TestBlockBase, FooLogic
 
 
@@ -37,14 +37,18 @@ class BadFooWithProps(BadFoo):
 		assert self.props.my_prop == 0
 
 
-
 class TestBlockClass(TestBlockBase, TestCase):
-	target = Foo()
-	bad_target = BadFoo()
-	block_foo_ob = FooLogic.args_call(target)
+	mold_cls = Foo
+	bad_mold_cls = BadFoo
 
-	def create_block_ob(self, **props) -> sx.Block:
-		return FooLogic.args_call(TestBlockClass.target, props=sx.Props(**props))
+	def test_is_built(self):
+		with tf.Session(graph=tf.Graph()).as_default():
+			block = self.create_block()
+			self.assertTrue(not block.is_built())
 
-	def create_bad_block_ob(self, **props) -> sx.Block:
-		return FooLogic.args_call(TestBlockClass.bad_target, props=sx.Props(**props))
+			built_block = self.build_block()
+			self.assertTrue(built_block.is_built())
+
+			with self.assertRaises(AssertionError) as ctx:
+				FooLogic.args_call(built_block.build_graph)
+			self.assertTrue('already built' in ctx.exception.args[0])

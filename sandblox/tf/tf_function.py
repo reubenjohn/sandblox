@@ -12,17 +12,21 @@ from sandblox.util import tf_util as U
 class TFStaticContext(StaticContext):
 	def __init__(self, block):
 		super().__init__(block)
-		self.var_scope = tf.variable_scope(self.block.scope.rel, reuse=self.block.reuse_var_scope)
+		self.graph_context = self.var_scope = None
 
 	def __enter__(self, *args, **kwargs):
 		super().__enter__(*args, **kwargs)
+		self.graph_context = self.block.graph.as_default()
+		self.graph_context.__enter__(*args, **kwargs)
+		self.var_scope = tf.variable_scope(self.block.scope.rel, reuse=self.block.reuse_var_scope)
 		self.var_scope.__enter__()
 		if len(self.block.get_all_ops(tf.get_variable_scope().name)) > 0:
 			print('WARNING: Building ops into pollute d name scope')  # TODO Implement DesignViolation here
 
 	def __exit__(self, *args, **kwargs):
-		super().__exit__()
 		self.var_scope.__exit__(*args, **kwargs)
+		self.graph_context.__exit__(*args, **kwargs)
+		super().__exit__()
 
 
 class TFMold(Mold):
@@ -62,11 +66,6 @@ class TFMold(Mold):
 
 	def static_context(self):
 		return TFStaticContext(self)
-
-	def build_graph(self, *args, **kwargs):
-		with self.graph.as_default():
-			super(TFMold, self).build_graph(*args, **kwargs)
-			return self
 
 	def build(self, *args, **kwargs):
 		raise NotImplementedError
@@ -146,6 +145,6 @@ def _tf_block_meta_decorator(cls: Type[TFMold] = None,
 	return tf_block_decorator
 
 
-def tf_block(fn_or_cls: Union[Callable, TFMold] = TFMold, default_props: Props = None) -> Type[TFMold]:
+def tf_block(fn_or_cls: Union[Callable, TFMold] = TFMold, props: Props = None) -> Type[TFMold]:
 	is_meta_decorator = not inspect.isfunction(fn_or_cls)
-	return _tf_block_meta_decorator(fn_or_cls, default_props) if is_meta_decorator else _tf_block_decorator(fn_or_cls)
+	return _tf_block_meta_decorator(fn_or_cls, props) if is_meta_decorator else _tf_block_decorator(fn_or_cls)
