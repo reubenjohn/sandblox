@@ -33,8 +33,8 @@ class BlockOutsKwargs(BlockOutsBase):
 
 
 class BlockOutsAttrs(BlockOutsBase):
-	def __init__(self):
-		self.o = DictAttrs()
+	def __init__(self, **dic):
+		self.o = DictAttrs(**dic)
 		self.oz = []
 
 
