@@ -20,8 +20,8 @@ class TFStaticContext(StaticContext):
 		self.graph_context.__enter__(*args, **kwargs)
 		self.var_scope = tf.variable_scope(self.block.scope.rel, reuse=self.block.reuse_var_scope)
 		self.var_scope.__enter__()
-		if len(self.block.get_all_ops(tf.get_variable_scope().name)) > 0:
-			print('WARNING: Building ops into pollute d name scope')  # TODO Implement DesignViolation here
+		if not self.block.reuse_var_scope and len(self.block.get_all_ops(tf.get_variable_scope().name)) > 0:
+			print('WARNING: Building ops into polluted name scope')  # TODO Implement DesignViolation here
 
 	def __exit__(self, *args, **kwargs):
 		self.var_scope.__exit__(*args, **kwargs)

@@ -104,11 +104,10 @@ class Suppressed(object):
 				if overhead_ratio > Suppressed.TestBlockBase.OVERHEAD_RATIO_LIMIT:
 					self.fail('Overhead factor of %.1f exceeded limit of %.1f' % (
 						overhead_ratio, Suppressed.TestBlockBase.OVERHEAD_RATIO_LIMIT))
-				else:
-					print('%s: Overhead factor of %.1f within limit of %.1f' % (
+				elif overhead_ratio / Suppressed.TestBlockBase.OVERHEAD_RATIO_LIMIT > 0.8:
+					print('WARNING %s: Overhead factor of %.1f approaching limit of %.1f' % (
 						type(self).__name__, overhead_ratio, Suppressed.TestBlockBase.OVERHEAD_RATIO_LIMIT))
 
-		# TODO Test scope_name
 		def test_session_specification(self):
 			sess = tf.Session(graph=tf.Graph())
 			with tf.Session(graph=tf.Graph()):

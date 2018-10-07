@@ -12,7 +12,7 @@ class BlockOutsBase(DictAttrBuilder):
 	def _on_new_attr_val(self, key, val):
 		if key in self.o:
 			# TODO Use DesignViolation implementation instead
-			print('Warning an existing output named %s with value %s will be overwritten' % (key, self.o[key]))
+			print('Warning an existing output named {} with value {} will be overwritten with {}'.format(key, self.o[key], val))
 			self.oz[self.oz.index(self.o[key])] = val
 		else:
 			self.oz.append(val)
