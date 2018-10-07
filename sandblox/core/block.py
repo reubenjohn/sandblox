@@ -121,7 +121,7 @@ class Block(object):
 		self._recurse_dynamic_results(dynamic_outputs)
 		return dynamic_outputs
 
-	def dynamic(self, static_outputs, *args, **kwargs):
+	def dynamic(self, *args, **kwargs):
 		raise errors.BlockNotDynamicError(self)
 
 	def _recurse_dynamic_results(self, outputs):
