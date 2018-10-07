@@ -212,7 +212,7 @@ def huber_loss(x, delta=1.0):
 
 
 def minimize_and_clip(optimizer, objective, var_list, clip_val=10):
-	"""Minimized `objective` using `optimizer` w.r.t. variables in
+	"""Minimized `objective` use `optimizer` w.r.t. variables in
 	`var_list` while ensure the norm of the gradients for each
 	variable is clipped to `clip_val`
 	"""
@@ -432,7 +432,7 @@ def function(inputs, outputs, updates=None, givens=None, session: tf.Session = N
 		x = tf.placeholder(tf.int32, (), name="x")
 		y = tf.placeholder(tf.int32, (), name="y")
 		z = 3 * x + 2 * y
-		lin = function([x, y], z, givens={y: 0})
+		lin = function([x, y], z, _self_givens={y: 0})
 
 		with single_threaded_session():
 			initialize()
@@ -499,7 +499,7 @@ class _Function(object):
 		assert len(args) <= len(self.inputs), 'Too many arguments provided'
 		remaining_inputs = set(self.inputs)
 		feed_dict = {}
-		# Update feed dict with givens.
+		# Update feed dict with _self_givens.
 		feed_dict.update(self.givens)
 		remaining_inputs = remaining_inputs - set(self.givens.keys())
 
@@ -507,7 +507,7 @@ class _Function(object):
 		assert len(args) <= len(remaining_inputs), \
 			'Too many actual parameters passed %d: %s\n' \
 			'This is because only %d formal parameters remain: %s\n' \
-			'after populating %d givens: %s' % (
+			'after populating %d _self_givens: %s' % (
 				len(args), str(args), len(remaining_inputs), remaining_inputs, len(self.givens), str(self.givens))
 		for inpt, value in zip(remaining_inputs, args):
 			self._feed_input(feed_dict, inpt, value)
@@ -522,7 +522,7 @@ class _Function(object):
 				"this function has two arguments with the same name \"{}\", so kwargs cannot be used.".format(inpt_name)
 			assert inpt_name in kwargs, "Required input with name '{}' among required inputs {}\n" \
 										"could not be inferred from:\n" \
-										"1. givens:  {}\n" \
+										"1. _self_givens:  {}\n" \
 										"2. args: {},\n" \
 										"3. kwargs: {}".format(inpt_name, self.inputs, args, kwargs, self.givens)
 			kwargs_passed_inpt_names.add(inpt_name)

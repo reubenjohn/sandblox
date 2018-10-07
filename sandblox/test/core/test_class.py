@@ -8,7 +8,7 @@ from . import TestBlockBase, FooLogic
 
 
 class Foo(sx.TFMold):
-	def build(self, x, y, param_with_default=-5, **kwargs):
+	def static(self, x, y, param_with_default=-5, **kwargs):
 		b, a = FooLogic.call(x, y, param_with_default, **kwargs)
 
 		# TODO Test both cases for python 3.6+
@@ -19,7 +19,7 @@ class Foo(sx.TFMold):
 
 
 class BadFoo(sx.TFMold):
-	def build(self, x, y, param_with_default=-5, **kwargs):
+	def static(self, x, y, param_with_default=-5, **kwargs):
 		b, a = FooLogic.call(x, y, param_with_default, **kwargs)
 
 		return b, a
@@ -50,5 +50,5 @@ class TestBlockClass(TestBlockBase, TestCase):
 			self.assertTrue(built_block.is_built())
 
 			with self.assertRaises(AssertionError) as ctx:
-				FooLogic.args_call(built_block.build_graph)
+				FooLogic.args_call(built_block.setup_static)
 			self.assertTrue('already built' in ctx.exception.args[0])

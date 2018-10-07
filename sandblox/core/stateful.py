@@ -80,8 +80,8 @@ class StatefulTFBlock(TFMold):
 		self.states = DictAttrs()
 		super(StatefulTFBlock, self).__init__(**props)
 
-	def build_wrapper(self, *args, **kwargs) -> BlockOutsBase:
-		out = super(StatefulTFBlock, self).build_wrapper(*args, **kwargs)
+	def _wrap_static(self, *args, **kwargs) -> BlockOutsBase:
+		out = super(StatefulTFBlock, self)._wrap_static(*args, **kwargs)
 
 		for index, key in enumerate(out.o):
 			output = out.o[key]
@@ -109,26 +109,26 @@ class StatefulTFBlock(TFMold):
 				out.__getattr__(key)(next_op)
 		return out
 
-	def build(self, *args, **kwargs):
+	def static(self, *args, **kwargs):
 		raise NotImplementedError
 
 	def compute_is_dynamic(self):
 		return len(self.dynamic_states) > 0 or super().compute_is_dynamic()
 
-	def eval(self, static_outputs, *args, **kwargs):
+	def dynamic(self, static_outputs, *args, **kwargs):
 		return static_outputs
 
 	@property
 	def dynamic_states(self) -> List[DynamicStateBinder]:
 		return [state for state in [self.states[key] for key in self.states] if is_dynamic_input(state)]
 
-	def get_my_givens(self):
-		binds = super(StatefulTFBlock, self).get_my_givens()
+	def self_givens(self):
+		binds = super(StatefulTFBlock, self).self_givens()
 		for dynamic_state_binder in self.dynamic_states:
 			binds[dynamic_state_binder.prev] = dynamic_state_binder.dynamic_val
 		return binds
 
-	def post_eval(self, dynamic_oz):
+	def _post_dynamic(self, dynamic_oz):
 		if self.is_dynamic:
 			for dynamic_state_binder in self.dynamic_states:
 				dynamic_state_binder.dynamic_val = dynamic_oz[dynamic_state_binder.dynamic_output_index]
@@ -141,11 +141,11 @@ def to_stateful_sandblox_function(fn: Callable, default_state_manager: TFStateMa
 								  def_props: Props) -> Type[StatefulTFBlock]:
 	# noinspection PyAbstractClass
 	class StatefulDecoratedFunction(base_cls):
-		build = fn
+		static = fn
 		state_manager = default_state_manager
 
 		def __init__(self, **props):
-			self.build = fn
+			self.static = fn
 			super(StatefulDecoratedFunction, self).__init__(**props)
 
 	return instantiate_block(StatefulDecoratedFunction, fn.__name__, def_props)

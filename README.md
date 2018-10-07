@@ -122,7 +122,7 @@ In cases where you want to separate the instantiation stage from the static grap
 
 ```python
 class FooBlock(sx.TFMold):
-    def build(self, x, y, bias):
+    def static(self, x, y, bias):
         concat = tf.concat([x, y], axis=0)
         biased = concat + bias
         x = biased
@@ -141,7 +141,7 @@ This is especially useful if you want to perform some kind of custom initializat
 class FooBlock(sx.TFMold):
     def __init__(self, **props):
         ...
-    def build(self, ...):
+    def static(self, ...):
         ...
 ```
 	    
@@ -150,8 +150,8 @@ Classes also allow you to provide custom dynamic evaluation, allowing you to uti
 ```python
 class FooBlock(sx.TFMold):
     ...
-    def eval(*args, **kwargs):
-        result = super(FooBlock, self).eval(*args, **kwargs)
+    def dynamic(*args, **kwargs):
+        result = super().dynamic(*args, **kwargs)
         return result * 2 if result < .5 else resultl
 ```
 

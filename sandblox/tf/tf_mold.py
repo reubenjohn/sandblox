@@ -31,7 +31,6 @@ class TFStaticContext(StaticContext):
 
 class TFMold(Mold):
 	def __init__(self, **default_props):
-		self.givens = {}
 		self.options = None
 		self.run_metadata = None
 		self.built_fn = None
@@ -64,43 +63,30 @@ class TFMold(Mold):
 		else:
 			return U.get_session()
 
-	def static_context(self):
-		return TFStaticContext(self)
-
-	def build(self, *args, **kwargs):
-		raise NotImplementedError
-
 	def set_session(self, session: tf.Session):
 		self.props.session = session
 		if self.built_fn is not None:
 			self.built_fn.set_session(session)
 
-	def static_run(self, *args, **kwargs):
-		if self.built_fn:
-			self.built_fn.givens = self.get_all_givens()
-			self.built_fn.using(self.options, self.run_metadata)
-		return self.built_fn(*args, **kwargs)
-
-	def dynamic_run(self, dynamic_outputs, *args, **kwargs):
-		return super().dynamic_run(dynamic_outputs, *args, **kwargs)
-
-	def get_all_givens(self) -> dict:
-		givens = {}
-		for inp in self.iz:
-			if isinstance(inp, TFMold):
-				child_givens = inp.get_all_givens()
-				givens.update(child_givens)
-		my_givens = self.get_my_givens()
-		givens.update(my_givens)
-		return givens
-
-	def get_my_givens(self):
-		return self.givens
-
-	def using(self, options=None, run_metadata=None):
+	def use(self, options=None, run_metadata=None):
 		self.options = options
 		self.run_metadata = run_metadata
 		return self
+
+	def _static_context(self):
+		return TFStaticContext(self)
+
+	def static(self, *args, **kwargs):
+		raise NotImplementedError
+
+	def _static_run(self, givens, *args, **kwargs):
+		if self.built_fn:
+			self.built_fn.givens = givens
+			self.built_fn.using(self.options, self.run_metadata)
+		return self.built_fn(*args, **kwargs)
+
+	def _dynamic_run(self, dynamic_outputs, *args, **kwargs):
+		return super()._dynamic_run(dynamic_outputs, *args, **kwargs)
 
 	def get_all_ops(self, scope_name: str = None) -> list:
 		if scope_name is None:
@@ -112,11 +98,9 @@ class TFMold(Mold):
 				list(map(all_ops.add, collect))  # TODO Add coverage for this line
 		return list(all_ops)
 
-	# TODO Add test case
 	def get_variables(self):
 		return tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.scope.exact_abs_pattern)
 
-	# TODO Add test case
 	def assign_vars(self, source_block: 'TFMold'):
 		weight_update = [tf.assign(new, old) for (new, old) in U.zipsame(self.get_variables(),
 																		 source_block.get_variables())]

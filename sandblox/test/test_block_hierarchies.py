@@ -102,7 +102,7 @@ class MeanEvaluators:
 		return Out.mean(tf.reduce_mean(elems, axis=1))
 
 	class MapReduceMean(TFMold):
-		def build(self, elems):
+		def static(self, elems):
 			mapped = tf.map_fn(self.props.func, elems)
 			return Out.mean(tf.reduce_mean(mapped, axis=1))
 

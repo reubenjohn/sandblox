@@ -6,10 +6,10 @@ from sandblox.core.mold import Mold
 
 
 class Function(Mold):
-	def eval(self, static_outputs, *args, **kwargs):
+	def dynamic(self, static_outputs, *args, **kwargs):
 		raise NotImplementedError
 
-	def build(self, *args, **kwargs):
+	def static(self, *args, **kwargs):
 		raise NotImplementedError
 
 	def get_all_ops(self, scope_name: str = None) -> list:
@@ -41,10 +41,10 @@ def instantiate_block(cls: Type[Mold], fn_name, default_props: Props = None):
 def fn_to_built_block(fn: Callable, base_cls: Type[Mold], def_props: Props = None):
 	# noinspection PyAbstractClass
 	class FnBuiltBlock(base_cls):
-		build = fn
+		static = fn
 
 		def __init__(self, **default_props):
-			self.build = fn
+			self.static = fn
 			super(FnBuiltBlock, self).__init__(**default_props)
 
 	return instantiate_block(FnBuiltBlock, fn.__name__, def_props)

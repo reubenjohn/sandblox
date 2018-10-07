@@ -32,6 +32,7 @@ class Block(object):
 	def __init__(self, **props_dict):
 		self._is_dynamic = None
 		self._is_built = False
+		self._self_givens = {}
 		self.i = self.o = self.iz = self.oz = self.di = self.built_fn = None
 		self.props = Props(**props_dict)
 		self.scope = Scope(props_dict.get('scope_name'), self)
@@ -50,8 +51,8 @@ class Block(object):
 	def compute_is_dynamic(self):
 		self._is_dynamic = True
 		try:
-			sig = signature(self.eval)
-			self.eval([None] * len(sig.parameters))
+			sig = signature(self.dynamic)
+			self.dynamic([None] * len(sig.parameters))
 		except errors.BlockNotDynamicError:
 			self._is_dynamic = False
 		except Exception:
@@ -61,15 +62,15 @@ class Block(object):
 	def is_built(self):
 		return self._is_built
 
-	def static_context(self):
+	def _static_context(self):
 		return StaticContext(self)
 
-	def build_graph(self, *args, **kwargs):
+	def setup_static(self, *args, **kwargs):
 		assert not self._is_built, 'Block already built'
 
-		with self.static_context():
+		with self._static_context():
 			self.i, self.iz, self.di, bound_args = self._bind(*args, **kwargs)
-			out = self.build_wrapper(**bound_args)
+			out = self._wrap_static(**bound_args)
 
 		self.o = out.o
 		self.oz = out.oz
@@ -77,53 +78,59 @@ class Block(object):
 		self._is_built = True
 
 	def _bind(self, *args, **kwargs):
-		input_args = bind_resolved(self.build, *args, **kwargs)
+		input_args = bind_resolved(self.static, *args, **kwargs)
 		i = DictAttrs(**input_args)
 		iz = list(input_args.values())
 		di = flattened_dynamic_inputs(input_args)
 		return i, iz, di, input_args
 
-	def build_wrapper(self, *args, **kwargs) -> BlockOutsBase:
-		ret = self.build(*args, **kwargs)
+	def _wrap_static(self, *args, **kwargs) -> BlockOutsBase:
+		ret = self.static(*args, **kwargs)
 
 		if isinstance(ret, Out.cls):
 			return ret
-		elif hasattr(ret, '__len__') and len(ret) > 1 and isinstance(ret[0], Out.cls):
-			return ret[0]
 		else:
-			raise AssertionError(
-				'A SandBlock must either return only a ' + type(Out).__name__
-				+ ' or it must be the first element of what is returned'
-			)
+			raise AssertionError('A SandBlock must either return only a ' + type(Out).__name__)
 
-	def build(self, *args, **kwargs):
+	def static(self, *args, **kwargs):
 		raise NotImplementedError
 
 	def run(self, *args, **kwargs):
-		dynamic_outputs = self.static_run(*args, **kwargs)
+		dynamic_outputs = self._static_run(self.givens(), *args, **kwargs)
 		if self.is_dynamic:
-			dynamic_outputs = self.dynamic_run(dynamic_outputs, *args, **kwargs)
+			dynamic_outputs = self._dynamic_run(dynamic_outputs, *args, **kwargs)
 		return dynamic_outputs
 
-	def static_run(self, *args, **kwargs):
-		return None
-
-	def dynamic_run(self, dynamic_outputs, *args, **kwargs):
-		dynamic_outputs = self.eval(dynamic_outputs, *args, **kwargs)
-		self.recurse_post_eval(dynamic_outputs)
-		return dynamic_outputs
-
-	def eval(self, static_outputs, *args, **kwargs):
-		raise errors.BlockNotDynamicError(self)
-
-	def recurse_post_eval(self, outputs):
+	def givens(self) -> dict:
+		givens = {}
 		for inp in self.iz:
 			if isinstance(inp, Block):
-				inp.recurse_post_eval(outputs)
-		self.post_eval(outputs)
+				givens.update(inp.givens())
+		givens.update(self.self_givens())
+		return givens
+
+	def self_givens(self):
+		return self._self_givens
+
+	def _static_run(self, givens, *args, **kwargs):
+		return None
+
+	def _dynamic_run(self, dynamic_outputs, *args, **kwargs):
+		dynamic_outputs = self.dynamic(dynamic_outputs, *args, **kwargs)
+		self._recurse_dynamic_results(dynamic_outputs)
+		return dynamic_outputs
+
+	def dynamic(self, static_outputs, *args, **kwargs):
+		raise errors.BlockNotDynamicError(self)
+
+	def _recurse_dynamic_results(self, outputs):
+		for inp in self.iz:
+			if isinstance(inp, Block):
+				inp._recurse_dynamic_results(outputs)
+		self._post_dynamic(outputs)
 
 	# TODO Fix this disgusting design :(
-	def post_eval(self, outputs):
+	def _post_dynamic(self, outputs):
 		pass
 
 	def get_all_ops(self, scope_name: str = None) -> list:

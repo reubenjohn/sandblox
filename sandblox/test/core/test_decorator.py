@@ -47,5 +47,5 @@ class TestBlockFunction(TestBlockBase, TestCase):
 			self.assertTrue(block.is_built())
 
 			with self.assertRaises(AssertionError) as ctx:
-				FooLogic.args_call(block.build_graph)
+				FooLogic.args_call(block.setup_static)
 			self.assertTrue('already built' in ctx.exception.args[0])

@@ -6,7 +6,7 @@ import tensorflow as tf
 
 
 class Adder(sx.TFMold):
-	def build(self, a, b):
+	def static(self, a, b):
 		return sx.Out.result(tf.add(a, b))
 
 

@@ -12,5 +12,5 @@ class Mold(Block):
 		props = dict(**self.default_props_dict)
 		props.update(kwargs.pop('props', Props()).__dict__)
 		block = type(self)(**props)
-		block.build_graph(*args, **kwargs)
+		block.setup_static(*args, **kwargs)
 		return block

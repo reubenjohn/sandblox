@@ -74,7 +74,7 @@ class Suppressed(object):
 				eval_100 = built_block.run(100)
 
 				metadata = tf.RunMetadata()
-				eval_0 = built_block.using(self.options, metadata).run(0)
+				eval_0 = built_block.use(self.options, metadata).run(0)
 				self.assertTrue(hasattr(metadata, 'partition_graphs') and len(metadata.partition_graphs) > 0)
 
 				self.assertEqual(eval_100[0], eval_0[0] + 100)
