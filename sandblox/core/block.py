@@ -1,5 +1,3 @@
-from inspect import signature
-
 import sandblox.errors as errors
 from sandblox.constants.internal import python_less_than_3_3
 from sandblox.core.arg import resolve
@@ -11,7 +9,7 @@ from sandblox.util.scope import Scope
 from sandblox.util.scope import UninitializedScope
 
 
-def flattened_dynamic_inputs(inps: dict) -> list:
+def get_dynamic_inputs(inps: dict) -> list:
 	result = []
 	for key in inps:
 		inp = inps[key]
@@ -20,7 +18,7 @@ def flattened_dynamic_inputs(inps: dict) -> list:
 		elif isinstance(inp, Block):
 			if not inp.is_built():
 				raise errors.NotBuiltError(block=inp)
-			result.extend(inp.di)
+			result.append(inp.di)
 	return result
 
 
@@ -30,13 +28,14 @@ class Block(object):
 	scope = UninitializedScope()
 
 	def __init__(self, **props_dict):
-		self._is_dynamic = None
 		self._is_built = False
 		self._self_givens = {}
 		self.i = self.o = self.iz = self.oz = self.di = self.built_fn = None
 		self.props = Props(**props_dict)
 		self.scope = Scope(props_dict.get('scope_name'), self)
 		self.reuse_var_scope = props_dict.get('reuse', None)
+		if not hasattr(self, 'dynamic'):
+			self.dynamic = errors.BlockNotDynamicCallback(self)
 
 	# TODO Add test case
 	def setup_scope(self, scope_name):
@@ -44,20 +43,8 @@ class Block(object):
 
 	@property
 	def is_dynamic(self):
-		if self._is_dynamic is None:
-			self._is_dynamic = self.compute_is_dynamic()
-		return self._is_dynamic or any(b.is_dynamic for b in self.iz if isinstance(b, Block))
-
-	def compute_is_dynamic(self):
-		self._is_dynamic = True
-		try:
-			sig = signature(self.dynamic)
-			self.dynamic([None] * len(sig.parameters))
-		except errors.BlockNotDynamicError:
-			self._is_dynamic = False
-		except Exception:
-			self._is_dynamic = True
-		return self.is_dynamic or any(b.is_dynamic for b in self.iz if isinstance(b, Block))
+		return not isinstance(self.dynamic, errors.BlockNotDynamicCallback) or any(
+			b.is_dynamic for b in self.iz if isinstance(b, Block))
 
 	def is_built(self):
 		return self._is_built
@@ -69,8 +56,9 @@ class Block(object):
 		assert not self._is_built, 'Block already built'
 
 		with self._static_context():
-			self.i, self.iz, self.di, bound_args = self._bind(*args, **kwargs)
+			self.i, self.iz, bound_args = self._bind(*args, **kwargs)
 			out = self._wrap_static(**bound_args)
+			self.di = get_dynamic_inputs(bound_args)
 
 		self.o = out.o
 		self.oz = out.oz
@@ -81,8 +69,7 @@ class Block(object):
 		input_args = bind_resolved(self.static, *args, **kwargs)
 		i = DictAttrs(**input_args)
 		iz = list(input_args.values())
-		di = flattened_dynamic_inputs(input_args)
-		return i, iz, di, input_args
+		return i, iz, input_args
 
 	def _wrap_static(self, *args, **kwargs) -> BlockOutsBase:
 		ret = self.static(*args, **kwargs)
@@ -90,10 +77,10 @@ class Block(object):
 		if isinstance(ret, Out.cls):
 			return ret
 		else:
-			raise AssertionError('A SandBlock must either return only a ' + type(Out).__name__)
+			raise AssertionError('A SandBlock must return only a ' + type(Out).__name__)
 
 	def static(self, *args, **kwargs):
-		return Out
+		return Out.cls()
 
 	def run(self, *args, **kwargs):
 		if not self.is_dynamic:
@@ -114,7 +101,7 @@ class Block(object):
 		return self._self_givens
 
 	def _static_run(self, *args, **kwargs):
-		return Out
+		return Out.cls()
 
 	def _dynamic_run(self, *args, **kwargs):
 		dynamic_outputs = self.dynamic(*args, **kwargs)

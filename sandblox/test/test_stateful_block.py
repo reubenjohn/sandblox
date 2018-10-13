@@ -4,8 +4,8 @@ import numpy as np
 import tensorflow as tf
 
 import sandblox as sx
-from sandblox.util import U
 from sandblox.tf.tf_mold import tf_static
+from sandblox.util import U
 
 
 @tf_static(props=sx.Props(state_manager=sx.TFStateManager([2], np.float32)))
@@ -73,7 +73,7 @@ class Suppress(object):
 				add=add(
 					tf.placeholder(tf.float32, [None, 2], 'offset'),
 					state_tensor,
-					props=sx.Props(scope_name='hypo')
+					props=sx.Props(scope_name='add')
 				),
 				props=sx.Props(scope_name='agent')
 			)
@@ -90,13 +90,14 @@ class Suppress(object):
 			ai = self.mean_selector.i
 			self.assertEqual(self.mean_selector.iz, [ai.selected_index, ai.mean_evaluators, ai.add])
 			hi = ai.add.i
-			expected_di = [ai.selected_index, hi.a]
+			expected_add_di = [hi.a]
+			expected_di = [ai.selected_index, expected_add_di]
 			if sx.is_dynamic_input(self.state_tensor):
-				expected_di.append(hi.b)
+				expected_add_di.append(hi.b)
 			self.assertEqual(self.mean_selector.di, expected_di)
 
 		def test_eval(self):
-			agent_result = self.mean_selector.run([0], [[.1, .2]])
+			agent_result = self.mean_selector.run([0], ([[.1, .2]],))
 			selections = agent_result[0]
 			self.assertTrue(
 				isinstance(selections, np.ndarray) and
@@ -114,7 +115,7 @@ class Suppress(object):
 			batch_accumulator_shape = self.mean_selector.states.b.state_manager.batch_shape(2)
 			self.mean_selector.states.b.dynamic_val = np.zeros(batch_accumulator_shape)
 
-			agent_result = self.mean_selector.run([0, 1], [[0, 2], [0, 2]])
+			agent_result = self.mean_selector.run([0, 1], ([[0, 2], [0, 2]], None))
 
 			means = agent_result[0]
 			self.assertTrue(np.array_equal(means, [1, 2]))

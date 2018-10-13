@@ -2,12 +2,12 @@ import inspect
 from typing import Callable, Type, Union
 
 import tensorflow as tf
-from sandblox.core.io import Out
 
 from sandblox.core.context import StaticContext
 from sandblox.core.function import Props, fn_to_built_block
 from sandblox.core.mold import Mold
 from sandblox.util import tf_util as U
+from sandblox.util.tf_util import _Function
 
 
 class TFStaticContext(StaticContext):
@@ -34,7 +34,7 @@ class TFMold(Mold):
 	def __init__(self, **default_props):
 		self.options = None
 		self.run_metadata = None
-		self.built_fn = None
+		self.built_fn = None  # type: _Function
 		super(TFMold, self).__init__(**default_props)
 		sess = self.props.__dict__.get('session', None)
 		assert sess is None or isinstance(sess, tf.Session), 'Specified session must be of type tf.Session'
@@ -76,9 +76,6 @@ class TFMold(Mold):
 
 	def _static_context(self):
 		return TFStaticContext(self)
-
-	def static(self, *args, **kwargs):
-		return Out
 
 	def _static_run(self, *args, **kwargs):
 		if self.built_fn:

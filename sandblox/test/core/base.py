@@ -84,7 +84,7 @@ class Suppressed(object):
 			with self.assertRaises(AssertionError) as bad_foo_context:
 				with tf.Session(graph=tf.Graph()):
 					self.create_bad_built_block(reuse=None)
-			self.assertTrue('must either return' in str(bad_foo_context.exception))
+			self.assertTrue('must return only' in str(bad_foo_context.exception))
 
 		def test_run_overhead(self):
 			with tf.Session() as sess:
@@ -113,7 +113,7 @@ class Suppressed(object):
 			with tf.Session(graph=tf.Graph()):
 				block = self.build_block(session=sess)
 				with sess.graph.as_default():
-					sess.run(tf.initialize_variables(block.get_variables()))
+					sess.run(tf.variables_initializer(block.get_variables()))
 				self.assertEqual(block.sess, sess)
 				block.run(100)
 				block.set_session(tf.Session())

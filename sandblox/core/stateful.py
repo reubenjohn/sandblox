@@ -112,8 +112,9 @@ class StatefulTFMold(TFMold):
 	def static(self, *args, **kwargs):
 		return Out
 
-	def compute_is_dynamic(self):
-		return len(self.dynamic_states) > 0 or super().compute_is_dynamic()
+	@property
+	def is_dynamic(self):
+		return len(self.dynamic_states) > 0 or super().is_dynamic
 
 	def dynamic(self, *args, **kwargs):
 		if self.is_dynamic:

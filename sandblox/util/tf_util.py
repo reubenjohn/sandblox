@@ -9,6 +9,8 @@ from typing import Union, Any, List, Dict
 import numpy as np
 import tensorflow as tf  # pylint: ignore-module
 
+from util.misc import ShapeMismatchError
+
 
 def zipsame(*seqs):
 	L = len(seqs[0])
@@ -418,7 +420,6 @@ def lstm(xs, ms, s, scope, nh, init_scale=1.0):
 # ================================================================
 
 
-
 def function(inputs, outputs, updates=None, givens=None, session: tf.Session = None):
 	"""Just like Theano function. Take a bunch of tensorflow placeholders and expressions
 	computed based on those placeholders and produces f(inputs) -> outputs. Function f takes
@@ -464,11 +465,16 @@ def function(inputs, outputs, updates=None, givens=None, session: tf.Session = N
 		f.__call__ = lambda *args, **kwargs: base(*args, **kwargs)[0]
 
 
+def deep_input_type_check(iterable, types):
+	if isinstance(iterable, (list, tuple)):
+		return all(deep_input_type_check(elem, types) for elem in iterable)
+	else:
+		return issubclass(type(iterable), TfInput) or len(iterable.op.inputs) == 0
+
+
 class _Function(object):
 	def __init__(self, inputs, outputs, updates, givens, check_nan=False, session: tf.Session = None):
-		for inpt in inputs:
-			if not issubclass(type(inpt), TfInput):
-				assert len(inpt.op.inputs) == 0, "inputs should all be placeholders of baselines.common.TfInput"
+		assert deep_input_type_check(inputs, TfInput), "inputs should all be placeholders of baselines.common.TfInput"
 		self.inputs = inputs
 		updates = updates or []
 		self.update_group = tf.group(*updates)
@@ -496,46 +502,55 @@ class _Function(object):
 
 	# TODO Add test for below assertions
 	def __call__(self, *args, **kwargs):
-		assert len(args) <= len(self.inputs), 'Too many arguments provided'
-		remaining_inputs = set(self.inputs)
 		feed_dict = {}
-		# Update feed dict with _self_givens.
 		feed_dict.update(self.givens)
-		remaining_inputs = remaining_inputs - set(self.givens.keys())
-
-		# Update the args
-		assert len(args) <= len(remaining_inputs), \
-			'Too many actual parameters passed %d: %s\n' \
-			'This is because only %d formal parameters remain: %s\n' \
-			'after populating %d _self_givens: %s' % (
-				len(args), str(args), len(remaining_inputs), remaining_inputs, len(self.givens), str(self.givens))
-		for inpt, value in zip(remaining_inputs, args):
-			self._feed_input(feed_dict, inpt, value)
-		remaining_inputs = list(remaining_inputs)[len(args):]
-
+		feed_dict.update(kwargs)
+		try:
+			self._recurse_deep_correspondence(self.inputs, args, feed_dict, feed_dict)
+		except ShapeMismatchError as e:
+			raise ShapeMismatchError(
+				'In order to determine deep correspondence, target must abide by shape of reference list {}'.format(
+					self.inputs), e)
+		except KeyError as e:
+			raise KeyError(
+				"""
+				Required input with name '{}' among required inputs {}
+				   could not be inferred from:
+				   1. args:  {},
+				   2. self.givens: {},
+				   3. kwargs: {}
+				""".format(e.args[0], self.inputs,
+						   args, self.givens, kwargs))
 		# Update the kwargs
-		kwargs_passed_inpt_names = set()
-		for inpt in remaining_inputs:
-			inpt_name = inpt.name.split(':')[0]
-			inpt_name = inpt_name.split('/')[-1]
-			assert inpt_name not in kwargs_passed_inpt_names, \
-				"this function has two arguments with the same name \"{}\", so kwargs cannot be used.".format(inpt_name)
-			assert inpt_name in kwargs, "Required input with name '{}' among required inputs {}\n" \
-										"could not be inferred from:\n" \
-										"1. _self_givens:  {}\n" \
-										"2. args: {},\n" \
-										"3. kwargs: {}".format(inpt_name, self.inputs, args, kwargs, self.givens)
-			kwargs_passed_inpt_names.add(inpt_name)
-			self._feed_input(feed_dict, inpt, kwargs.pop(inpt_name))
-		assert len(kwargs) == 0, "Function got extra keyword arguments " + str(list(kwargs.keys()))
-		results = self.sess.run(self.outputs_update, feed_dict=feed_dict, options=self.options,
-								run_metadata=self.run_metadata)[:-1]
+		try:
+			results = self.sess.run(self.outputs_update, feed_dict=feed_dict, options=self.options,
+									run_metadata=self.run_metadata)[:-1]
+		except ValueError as e:
+			print('\nAn error occurred with feed mapping:')
+			for index, (key, val) in enumerate(feed_dict.items()):
+				print('%d. {}: {}'.format(key, val) % index)
+			raise e
 		self.options = None
 		self.run_metadata = None
 		if self.check_nan:
 			if any(np.isnan(r).any() for r in results):
 				raise RuntimeError("Nan detected")
 		return results
+
+	def _recurse_deep_correspondence(self, reference, args, given: dict, corresponding):
+		if not isinstance(reference, (list, tuple)):
+			if args is None:
+				args = given[reference]
+			corresponding[reference] = args
+			return
+
+		if not isinstance(args, (list, tuple)) or len(reference) < len(args):
+			raise ShapeMismatchError()
+
+		if len(reference) > len(args):
+			args = list(args) + [None] * (len(reference) - len(args))
+		for e1, e2 in zip(reference, args):
+			self._recurse_deep_correspondence(e1, e2, given, corresponding)
 
 	def using(self, options=None, run_metadata=None):
 		self.options = options

@@ -19,3 +19,8 @@ class BlockNotDynamicError(NotImplementedError):
 		self.block = block
 		msg = 'Mold "{}" is not dynamic'.format(self.block)
 		super(BlockNotDynamicError, self).__init__(msg)
+
+
+class BlockNotDynamicCallback(BlockNotDynamicError):
+	def __call__(self, *args, **kwargs):
+		raise self

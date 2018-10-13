@@ -1,5 +1,6 @@
 # TODO Introduce DesignViolation escalation system
 
+
 class DictAttrs(object):
 	def __init__(self, **dic):
 		self.__dict__.update(dic)
@@ -41,3 +42,7 @@ class DictAttrBuilderFactory(object):
 		if item == 'cls':
 			return self.cls
 		return self.cls().__getattr__(item)
+
+
+class ShapeMismatchError(TypeError):
+	pass
