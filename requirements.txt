@@ -16,7 +16,7 @@ py==1.6.0
 pytest==3.8.1
 requests==2.19.1
 six==1.11.0
-tensorflow==1.10.1
+tensorflow==1.12.2
 typing==3.6.6
 urllib3==1.23
 yarg==0.1.9
