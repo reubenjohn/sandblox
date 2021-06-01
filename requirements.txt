@@ -18,5 +18,5 @@ requests==2.19.1
 six==1.11.0
 tensorflow==1.10.1
 typing==3.6.6
-urllib3==1.23
+urllib3==1.26.5
 yarg==0.1.9
