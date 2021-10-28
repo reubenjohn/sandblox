@@ -1,3 +1,5 @@
+**Many features of this project are now available natively with Tensorflow 2. This project is no longer being maintained.**
+
 ![SandB|ox](https://image.ibb.co/bRbfGc/SandBlox.png)
 ===
 ***Disclaimer**: Sandblox is a work in progress, and so, we describe not only what SandBlox is currently capable of, but also some of it's eventual objectives.*
