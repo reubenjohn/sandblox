@@ -7,7 +7,7 @@ docopt==0.6.2
 first==2.0.1
 idna==2.7
 more-itertools==4.3.0
-numpy==1.14.5
+numpy==1.22.0
 pathlib2==2.3.2
 pip-tools==2.0.2
 pipreqs==0.4.9
