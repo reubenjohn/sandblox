@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 requires = [
-	'tensorflow>=1.8,<2.6',
+	'tensorflow>=1.8,<2.10',
 	'typing==3.6.6',
 ]
 
